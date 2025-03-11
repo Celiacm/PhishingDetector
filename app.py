@@ -652,31 +652,34 @@ def get_emails():
 def reportes():
     emails = get_emails()  # Obtener correos
 
-    # 📊 Contar tipos de correos
+    if not emails:
+        return jsonify({
+            "error": "No hay datos disponibles",
+            "phishing_stats": [0, 0, 0],
+            "attachment_stats": [0, 0, 0],
+            "trends": {"dates": [], "counts": []}
+        }), 200
+
+    # Contar tipos de correos
     phishing_count = sum(1 for email in emails if email["is_phishing"] == "Phishing 🚨 (Alto riesgo)")
     sospechoso_count = sum(1 for email in emails if email["is_phishing"] == "Sospechoso ⚠️ (Riesgo moderado)")
     seguro_count = len(emails) - phishing_count - sospechoso_count
 
-    # 📊 Contar archivos adjuntos analizados
+    #  Contar archivos adjuntos analizados
     archivos_limpios = sum(1 for email in emails for adj in email.get("attachments", []) if "✅" in adj)
     archivos_sospechosos = sum(1 for email in emails for adj in email.get("attachments", []) if "⚠️" in adj)
     archivos_peligrosos = sum(1 for email in emails for adj in email.get("attachments", []) if "🚨" in adj)
 
-    # 📡 Enviar datos a la interfaz
+    #  Crear datos de tendencias (fechas y conteo)
+    trend_dates = []
+    trend_counts = []
+
     return jsonify({
         "phishing_stats": [seguro_count, sospechoso_count, phishing_count],
-        "attachment_stats": [archivos_limpios, archivos_sospechosos, archivos_peligrosos]
-    }), 200, {'Content-Type': 'application/json; charset=utf-8'}
+        "attachment_stats": [archivos_limpios, archivos_sospechosos, archivos_peligrosos],
+        "trends": {"dates": trend_dates, "counts": trend_counts}
+    })
 
-
-@app.route("/detalles_correo/<int:index>")
-def detalles_correo(index):
-    emails = get_emails()
-    if index < 0 or index >= len(emails):
-        return "Correo no encontrado", 404
-    email = emails[index]
-
-    return render_template("detalles_correo.html", email=email)
 
 
 @app.route("/exportar_csv")
@@ -703,6 +706,15 @@ def exportar_csv():
     output = Response(si.getvalue(), mimetype="text/csv")
     output.headers["Content-Disposition"] = "attachment; filename=reportes.csv"
     return output
+
+@app.route("/detalles_correo/<int:index>")
+def detalles_correo(index):
+    emails = get_emails()
+    if index < 0 or index >= len(emails):
+        return "Correo no encontrado", 404
+    email = emails[index]
+    return render_template("detalles_correo.html", email=email)
+
 
 @app.route("/")
 def index():

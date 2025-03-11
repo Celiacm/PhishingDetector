@@ -7,6 +7,7 @@
     <!-- Bootstrap 5 (CSS y JS) -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
         body {
@@ -118,7 +119,23 @@
             mostrarFrase();
             mostrarQuiz();
         }
+        function verDetalles(index) {
+            fetch('/detalles_correo/' + index)
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById("detallesCorreo").innerHTML = data;
+                    new bootstrap.Modal(document.getElementById("modalDetalles")).show();
+                })
+                .catch(error => console.error("Error al cargar detalles del correo:", error));
+        }
+
         function renderCharts(phishingData, attachmentsData, trendsData) {
+            if (!phishingData || !attachmentsData || !trendsData) {
+                console.error("Error: Datos no disponibles para reportes");
+                document.getElementById("reportes").innerHTML += "<p class='text-danger'>No hay datos para mostrar.</p>";
+                return;
+            }
+
             const phishingCtx = document.getElementById('phishingChart').getContext('2d');
             new Chart(phishingCtx, {
                 type: 'doughnut',
@@ -143,37 +160,46 @@
                 }
             });
 
-            const trendsCtx = document.getElementById('phishingTrendsChart').getContext('2d');
-            new Chart(trendsCtx, {
-                type: 'line',
-                data: {
-                    labels: trendsData.dates,
-                    datasets: [{
-                        label: 'Correos Phishing por Día',
-                        data: trendsData.counts,
-                        borderColor: 'red',
-                        fill: false
-                    }]
-                }
-            });
-        }
-
-        // Cargar datos de Flask
-        fetch('/reportes')
-            .then(response => response.json())
-            .then(data => {
-                renderCharts(data.phishing_stats, data.attachment_stats, data.trends);
-            });
-
-          
-        function verDetalles(index) {
-            fetch('/detalles_correo/' + index)
-                .then(response => response.text())
-                .then(data => {
-                    document.getElementById("detallesCorreo").innerHTML = data;
-                    new bootstrap.Modal(document.getElementById("modalDetalles")).show();
+            if (trendsData.dates.length > 0) {
+                const trendsCtx = document.getElementById('phishingTrendsChart').getContext('2d');
+                new Chart(trendsCtx, {
+                    type: 'line',
+                    data: {
+                        labels: trendsData.dates,
+                        datasets: [{
+                            label: 'Correos Phishing por Día',
+                            data: trendsData.counts,
+                            borderColor: 'red',
+                            fill: false
+                        }]
+                    }
                 });
+            } else {
+                document.getElementById("phishingTrendsChart").outerHTML = "<p class='text-muted'>No hay datos de tendencias aún.</p>";
+            }
         }
+
+        fetch('/reportes')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error("No se pudo obtener los reportes.");
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    console.warn(data.error);
+                    document.getElementById("reportes").innerHTML += "<p class='text-danger'>" + data.error + "</p>";
+                } else {
+                    renderCharts(data.phishing_stats, data.attachment_stats, data.trends);
+                }
+            })
+            .catch(error => {
+                console.error("Error al cargar reportes:", error);
+                document.getElementById("reportes").innerHTML += "<p class='text-danger'>Error al obtener reportes.</p>";
+            });
+
+
 
 
     </script>
