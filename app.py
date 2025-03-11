@@ -1,6 +1,8 @@
 from flask import Flask, redirect, url_for, session, request, render_template, jsonify, Response
 from requests_oauthlib import OAuth2Session
 from bs4 import BeautifulSoup  # Necesario para extraer enlaces de HTML
+from collections import Counter
+from datetime import datetime
 import os, jwt, imaplib, email, json, re, unicodedata, requests, email.policy, yara, io
 import quopri, dns.resolver, dkim, schedule, time, threading, csv
 
@@ -648,10 +650,13 @@ def get_emails():
         return []
 
 
+from collections import Counter
+from datetime import datetime
+
 @app.route("/reportes")
 def reportes():
-    emails = get_emails()  # Obtener correos
-
+    emails = get_emails()
+    
     if not emails:
         return jsonify({
             "error": "No hay datos disponibles",
@@ -660,24 +665,27 @@ def reportes():
             "trends": {"dates": [], "counts": []}
         }), 200
 
-    # Contar tipos de correos
+    # 📊 Contar tipos de correos
     phishing_count = sum(1 for email in emails if email["is_phishing"] == "Phishing 🚨 (Alto riesgo)")
     sospechoso_count = sum(1 for email in emails if email["is_phishing"] == "Sospechoso ⚠️ (Riesgo moderado)")
     seguro_count = len(emails) - phishing_count - sospechoso_count
 
-    #  Contar archivos adjuntos analizados
+    # 📊 Contar archivos adjuntos analizados
     archivos_limpios = sum(1 for email in emails for adj in email.get("attachments", []) if "✅" in adj)
     archivos_sospechosos = sum(1 for email in emails for adj in email.get("attachments", []) if "⚠️" in adj)
     archivos_peligrosos = sum(1 for email in emails for adj in email.get("attachments", []) if "🚨" in adj)
 
-    #  Crear datos de tendencias (fechas y conteo)
-    trend_dates = []
-    trend_counts = []
+    # 📅 Obtener tendencias de phishing
+    phishing_dates = [email.get("date", datetime.now().strftime("%d-%b")) for email in emails if email["is_phishing"] == "Phishing 🚨 (Alto riesgo)"]
+    trend_counts = Counter(phishing_dates)  # Cuenta ocurrencias por fecha
+
+    trend_dates = sorted(trend_counts.keys())  # Fechas ordenadas
+    trend_values = [trend_counts[date] for date in trend_dates]  # Cantidad de phishing por fecha
 
     return jsonify({
         "phishing_stats": [seguro_count, sospechoso_count, phishing_count],
         "attachment_stats": [archivos_limpios, archivos_sospechosos, archivos_peligrosos],
-        "trends": {"dates": trend_dates, "counts": trend_counts}
+        "trends": {"dates": trend_dates, "counts": trend_values}
     })
 
 
@@ -686,26 +694,30 @@ def reportes():
 def exportar_csv():
     emails = get_emails()  # Recuperar la lista de correos
 
-    si = io.StringIO()
-    writer = csv.writer(si)
-    
-    # Escribir encabezados en el CSV
-    writer.writerow(["Asunto", "De", "Estado", "SPF", "DKIM", "DMARC"])
+    if not emails:
+        return "No hay datos disponibles", 400
 
-    # Escribir los datos de los correos
+    si = io.StringIO()
+    writer = csv.writer(si, delimiter=";", quotechar='"', quoting=csv.QUOTE_MINIMAL)
+
+    # 📝 Encabezados mejorados
+    writer.writerow(["Asunto", "Remitente", "Estado de Seguridad", "SPF", "DKIM", "DMARC"])
+
+    # 📝 Escribir los datos de los correos
     for email in emails:
         writer.writerow([
-            email.get("subject", ""),
-            email.get("from", ""),
-            email.get("is_phishing", ""),
-            email.get("spf_result", ""),
-            email.get("dkim_result", ""),
-            email.get("dmarc_result", "")
+            email.get("subject", "-"),
+            email.get("from", "-"),
+            email.get("is_phishing", "-"),
+            email.get("spf_result", "-"),
+            email.get("dkim_result", "-"),
+            email.get("dmarc_result", "-")
         ])
 
-    output = Response(si.getvalue(), mimetype="text/csv")
+    output = Response("\ufeff" + si.getvalue(), mimetype="text/csv")  # Agregar BOM para compatibilidad con Excel
     output.headers["Content-Disposition"] = "attachment; filename=reportes.csv"
     return output
+
 
 @app.route("/detalles_correo/<int:index>")
 def detalles_correo(index):
@@ -714,6 +726,7 @@ def detalles_correo(index):
         return "Correo no encontrado", 404
     email = emails[index]
     return render_template("detalles_correo.html", email=email)
+
 
 
 @app.route("/")

@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel de Correos</title>
+    <title>PhishingDetector</title>
+
+    <link rel="icon" type="image/webp" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <!-- Bootstrap 5 (CSS y JS) -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
@@ -59,6 +62,63 @@
                 font-size: 14px;
             }
         }
+        .card {
+            border-radius: 12px;
+            background: #ffffff;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+
+        .card:hover {
+            transform: scale(1.03);
+        }
+
+        h4 {
+            color: #343a40;
+            font-weight: bold;
+        }
+
+        .btn-success {
+            font-size: 1.2rem;
+            padding: 10px 20px;
+        }
+
+        #errorReportes {
+            font-size: 1.2rem;
+        }
+        .hero-section h1 {
+            text-shadow: 2px 2px 8px rgba(0,0,0,0.5);
+        }
+
+        .card {
+            border-radius: 12px;
+            transition: transform 0.2s;
+        }
+
+        .card:hover {
+            transform: scale(1.03);
+        }
+
+        .nav-link:hover {
+            color: #007bff !important;
+            transition: color 0.3s;
+        }
+
+        .btn-lg {
+            font-size: 1.2rem;
+            padding: 10px 20px;
+        }
+        .loading-screen {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
 
 
 
@@ -120,27 +180,44 @@
             mostrarQuiz();
         }
         function verDetalles(index) {
-            fetch('/detalles_correo/' + index)
-                .then(response => response.text())
-                .then(data => {
-                    document.getElementById("detallesCorreo").innerHTML = data;
-                    new bootstrap.Modal(document.getElementById("modalDetalles")).show();
+            const modalBody = document.getElementById("detallesCorreo");
+
+            // Mensaje de carga mientras se obtiene la información
+            modalBody.innerHTML = "<p class='text-center text-muted'>Cargando detalles...</p>";
+
+            // Hacer la solicitud para obtener los detalles
+            fetch(`/detalles_correo/${index}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("Error al obtener los detalles del correo.");
+                    }
+                    return response.text();
                 })
-                .catch(error => console.error("Error al cargar detalles del correo:", error));
+                .then(data => {
+                    modalBody.innerHTML = data; // Cargar el contenido en el modal
+                })
+                .catch(error => {
+                    modalBody.innerHTML = `<p class='text-danger text-center'>No se pudieron cargar los detalles.</p>`;
+                    console.error("Error:", error);
+                });
+
+            // Mostrar el modal
+            new bootstrap.Modal(document.getElementById("modalDetalles")).show();
         }
 
-        function renderCharts(phishingData, attachmentsData, trendsData) {
-            if (!phishingData || !attachmentsData || !trendsData) {
-                console.error("Error: Datos no disponibles para reportes");
-                document.getElementById("reportes").innerHTML += "<p class='text-danger'>No hay datos para mostrar.</p>";
-                return;
-            }
 
+        document.addEventListener("DOMContentLoaded", function() {
+            setTimeout(() => {
+                document.getElementById("loading").style.display = "none";
+            }, 1500);
+        });
+
+        function renderCharts(phishingData, attachmentsData, trendsData) {
             const phishingCtx = document.getElementById('phishingChart').getContext('2d');
             new Chart(phishingCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: ['Seguro', 'Sospechoso', 'Phishing'],
+                    labels: ['Seguro ✅', 'Sospechoso ⚠️', 'Phishing 🚨'],
                     datasets: [{
                         data: phishingData,
                         backgroundColor: ['green', 'orange', 'red']
@@ -152,7 +229,7 @@
             new Chart(attachmentsCtx, {
                 type: 'bar',
                 data: {
-                    labels: ['Limpios', 'Sospechosos', 'Peligrosos'],
+                    labels: ['Limpios ✅', 'Sospechosos ⚠️', 'Peligrosos 🚨'],
                     datasets: [{
                         data: attachmentsData,
                         backgroundColor: ['blue', 'yellow', 'red']
@@ -167,37 +244,44 @@
                     data: {
                         labels: trendsData.dates,
                         datasets: [{
-                            label: 'Correos Phishing por Día',
+                            label: 'Correos Phishing por Día 🚨',
                             data: trendsData.counts,
                             borderColor: 'red',
-                            fill: false
+                            backgroundColor: 'rgba(255, 0, 0, 0.2)',
+                            fill: true
                         }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { display: false }
+                        }
                     }
                 });
             } else {
-                document.getElementById("phishingTrendsChart").outerHTML = "<p class='text-muted'>No hay datos de tendencias aún.</p>";
+                document.getElementById("phishingTrendsChart").outerHTML = "<p class='text-muted text-center'>No hay datos de tendencias aún.</p>";
             }
         }
 
+        // Cargar datos de Flask y manejar errores
         fetch('/reportes')
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error("No se pudo obtener los reportes.");
-                }
-                return response.json();
-            })
+            .then(response => response.json())
             .then(data => {
                 if (data.error) {
                     console.warn(data.error);
-                    document.getElementById("reportes").innerHTML += "<p class='text-danger'>" + data.error + "</p>";
+                    document.getElementById("errorReportes").style.display = "block";
                 } else {
+                    document.getElementById("errorReportes").style.display = "none";
                     renderCharts(data.phishing_stats, data.attachment_stats, data.trends);
                 }
             })
             .catch(error => {
                 console.error("Error al cargar reportes:", error);
-                document.getElementById("reportes").innerHTML += "<p class='text-danger'>Error al obtener reportes.</p>";
+                document.getElementById("errorReportes").style.display = "block";
             });
+
+
+
 
 
 
@@ -205,29 +289,66 @@
     </script>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="#" onclick="showSection('inicio')">Gestor de Correos</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
-                aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+    <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
+        <div class="container">
+            <a class="navbar-brand" href="#" onclick="showSection('inicio')">
+                <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" style="height: 40px;">
+                <strong class="text-primary">PhishingDetector</strong>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
-                    <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('correos')">Correos Recibidos</a></li>
-                    <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('analizador')">Analizador Manual</a></li>
-                    <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('reportes')">📊 Visualización y Reportes</a></li>
-
+                    <li class="nav-item"><a class="nav-link text-dark fw-bold" href="#" onclick="showSection('correos')">📬 Correos Recibidos</a></li>
+                    <li class="nav-item"><a class="nav-link text-dark fw-bold" href="#" onclick="showSection('analizador')">🔍 Analizador Manual</a></li>
+                    <li class="nav-item"><a class="nav-link text-dark fw-bold" href="#" onclick="showSection('reportes')">📊 Visualización y Reportes</a></li>
                 </ul>
                 <ul class="navbar-nav">
-                    <li class="nav-item"><a class="nav-link text-danger" href="{{ url_for('logout') }}">Cerrar Sesión</a></li>
+                    <li class="nav-item"><a class="btn btn-danger" href="{{ url_for('logout') }}">Cerrar Sesión</a></li>
                 </ul>
             </div>
         </div>
     </nav>
+    
+    <div id="loading" class="loading-screen">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="text-muted">Cargando...</p>
+    </div>
 
     <div class="container">
         <div id="inicio" class="section">
+            <div class="container text-center mt-5">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="p-4 border rounded shadow-sm bg-white">
+                            <h3 class="text-primary">🛡️ Seguridad</h3>
+                            <p class="text-muted">Detecta y bloquea correos de phishing antes de que te afecten.</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-4 border rounded shadow-sm bg-white">
+                            <h3 class="text-success">📊 Análisis</h3>
+                            <p class="text-muted">Revisa y analiza correos sospechosos con nuestra herramienta.</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-4 border rounded shadow-sm bg-white">
+                            <h3 class="text-danger">🚨 Protección</h3>
+                            <p class="text-muted">Evita ataques cibernéticos con alertas en tiempo real.</p>
+                        </div>
+                    </div>
+                    <div class="row mt-4">
+                        <div class="col-12 d-flex justify-content-center">
+                            <a href="#" onclick="showSection('analizador')" class="btn btn-primary btn-lg">🔍 Analizar Correo</a>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            
+            
+            
             <div class="quote-box">
                 <p id="frase"></p>
             </div>
@@ -244,41 +365,31 @@
         </div>
 
         <div id="correos" class="section hidden">
-            <h2>📬 Correos Recibidos</h2>
+            <h2 class="text-center">📬 Correos Recibidos</h2>
             {% if emails %}
                 <div class="list-group">
                     {% for email in emails %}
-                        <div class="list-group-item">
-                            <h5>{{ email["subject"] }}</h5>
+                        <div class="card shadow-lg p-3 mb-3">
+                            <h5 class="fw-bold">{{ email["subject"] }}</h5>
                             <p><strong>De:</strong> {{ email["from"] }}</p>
                             <p><strong>Estado:</strong> 
                                 {% if email["is_phishing"] == "Phishing 🚨 (Alto riesgo)" %}
-                                    <span class="text-danger">🚨 {{ email["is_phishing"] }}</span>
+                                    <span class="text-danger fw-bold">🚨 {{ email["is_phishing"] }}</span>
                                 {% elif email["is_phishing"] == "Sospechoso ⚠️ (Riesgo moderado)" %}
-                                    <span class="text-warning">⚠️ {{ email["is_phishing"] }}</span>
+                                    <span class="text-warning fw-bold">⚠️ {{ email["is_phishing"] }}</span>
                                 {% else %}
-                                    <span class="text-success">✅ {{ email["is_phishing"] }}</span>
+                                    <span class="text-success fw-bold">✅ {{ email["is_phishing"] }}</span>
                                 {% endif %}
                             </p>
-                            <button class="btn btn-info" onclick="verDetalles('{{ loop.index0 }}')">🔍 Ver Detalles</button>
+                            <button class="btn btn-info btn-sm" onclick="verDetalles('{{ loop.index0 }}')">🔍 Ver Detalles</button>
                         </div>
                     {% endfor %}
                 </div>
             {% else %}
-                <p class="text-muted">No hay correos recientes.</p>
+                <p class="text-muted text-center">No hay correos recientes.</p>
             {% endif %}
         </div>
-        <div id="modalDetalles" class="modal fade" tabindex="-1">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Detalles del Correo</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body" id="detallesCorreo"></div>
-                </div>
-            </div>
-        </div>
+        
         
 
         <div id="analizador" class="section hidden">
@@ -300,21 +411,63 @@
             </form>
         </div>
         <div id="reportes" class="section hidden">
-            <h2>📊 Reportes de Seguridad</h2>
-            <canvas id="phishingChart"></canvas>  <!-- Gráfico de phishing -->
-            <canvas id="attachmentsChart"></canvas> <!-- Gráfico de archivos adjuntos -->
-            <canvas id="phishingTrendsChart"></canvas> <!-- Gráfico de tendencias -->
-            <div class="mt-4">
-                <a href="/exportar_csv" class="btn btn-success">📤 Exportar a CSV</a>
+            <h2 class="text-center mt-4">📊 Reportes de Seguridad</h2>
+        
+            <div class="container mt-4">
+                <div class="row">
+                    <!-- Gráfico de Estado de Correos -->
+                    <div class="col-md-6 mb-4">
+                        <div class="card shadow-lg p-3">
+                            <h4 class="text-center">Estado de Correos 📩</h4>
+                            <canvas id="phishingChart"></canvas>
+                        </div>
+                    </div>
+        
+                    <!-- Gráfico de Archivos Adjuntos -->
+                    <div class="col-md-6 mb-4">
+                        <div class="card shadow-lg p-3">
+                            <h4 class="text-center">Archivos Adjuntos 📎</h4>
+                            <canvas id="attachmentsChart"></canvas>
+                        </div>
+                    </div>
+        
+                    <!-- Gráfico de Tendencias -->
+                    <div class="col-12 mb-4">
+                        <div class="card shadow-lg p-3">
+                            <h4 class="text-center">Tendencias de Phishing 📈</h4>
+                            <canvas id="phishingTrendsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+        
+                <!-- Botón para exportar datos -->
+                <div class="text-center mt-4">
+                    <a href="/exportar_csv" class="btn btn-lg btn-success shadow">📤 Exportar a CSV</a>
+                </div>
             </div>
+        
+            <!-- Mensaje de error si no hay datos -->
+            <p id="errorReportes" class="text-center text-danger mt-3" style="display: none;">Error al obtener reportes.</p>
         </div>
-        
-        
-        
     </div>
     <footer class="footer">
-        <p>&copy; 2025 Gestor de Correos.</p>
+        <p>&copy; 2025 PhishingDetector</p>
         <p>Contacto: <a href="mailto:soporte@gestordecorreos.com" style="color: white;">soporte@gestordecorreos.com</a></p>
     </footer>
+    <!-- Modal para mostrar detalles del correo -->
+    <div class="modal fade" id="modalDetalles" tabindex="-1" aria-labelledby="modalDetallesLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalDetallesLabel">📩 Detalles del Correo</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body" id="detallesCorreo">
+                    <p class="text-center text-muted">Cargando detalles...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
