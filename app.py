@@ -1,28 +1,80 @@
 from flask import Flask, redirect, url_for, session, request, render_template, jsonify, Response
 from requests_oauthlib import OAuth2Session
-from bs4 import BeautifulSoup  # Necesario para extraer enlaces de HTML
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime
+from bs4 import BeautifulSoup  # Necesario para extraer enlaces de HTML
 import os, jwt, imaplib, email, json, re, unicodedata, requests, email.policy, yara, io
-import quopri, dns.resolver, dkim, schedule, time, threading, csv
-
-import urllib.parse
+import quopri, dns.resolver, dkim, schedule, time, threading, csv, whois
+import urllib.parse, sqlite3
 from email import policy
+from dotenv import load_dotenv
 
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+
+
+load_dotenv()  # Añadir esto arriba del todo de app.py
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "clave_secreta_super_segura")
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY")
+app.secret_key = os.getenv("SECRET_KEY")
+
+
+
+#app.secret_key = os.environ.get("SECRET_KEY", "clave_secreta_super_segura")
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
 
-# 🔑 Token del bot de Telegram (REEMPLAZA con el tuyo)
-TELEGRAM_BOT_TOKEN = "8143866019:AAHuvoken_pyqWkLLtL4h57mYq12-ao4fks"
-
-# 📩 Tu Chat ID (REEMPLAZA con el tuyo)
-TELEGRAM_CHAT_ID = "2064396630"
 
 
-# 🔑 API Key de VirusTotal 
-VIRUSTOTAL_API_KEY = "84163cf4e7c1e47c41cfc7de9ed6d8c2305e8612875a646c8f0aaaf2c1fc6819"
+def init_db():
+    """Crea la base de datos y la tabla si no existen."""
+    conn = sqlite3.connect("phishing_detector.db")
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS correos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asunto TEXT,
+            remitente TEXT,
+            estado TEXT,
+            spf TEXT,
+            dkim TEXT,
+            dmarc TEXT,
+            fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    conn.commit()
+    conn.close()
+
+init_db()  # Ejecutar la inicialización al iniciar la app
+
+
+
+
+def save_email_to_db(email_data):
+    conn = sqlite3.connect("phishing_detector.db")
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    INSERT INTO correos (asunto, remitente, estado, spf, dkim, dmarc)
+    VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        email_data["subject"],
+        email_data["from"],
+        email_data["is_phishing"],
+        email_data["spf_result"],
+        email_data["dkim_result"],
+        email_data["dmarc_result"]
+    ))
+
+
+    conn.commit()
+    conn.close()
+
 
 # 📂 Carpeta donde se guardarán los archivos temporales
 ATTACHMENT_FOLDER = "attachments"
@@ -89,6 +141,14 @@ rule DetectMaliciousFiles {
         any of them
 }
 """
+
+
+
+
+
+
+
+
 
 
 
@@ -219,6 +279,13 @@ except yara.SyntaxError as e:
 
 
 
+
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".png", ".jpg"}
+
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
 def analyze_attachment(part):
     #Analiza archivos adjuntos en busca de amenazas
     filename = part.get_filename()
@@ -241,6 +308,10 @@ def analyze_attachment(part):
         with open(file_path, "wb") as f:
             f.write(file_data)
 
+        if not allowed_file(filename):
+            return "⚠️ Archivo no permitido."
+
+
         # 🔍 Análisis con YARA
         yara_result = yara_rules.match(file_path)
         if yara_result:
@@ -251,6 +322,20 @@ def analyze_attachment(part):
         return vt_result
 
     return "✅ No se detectaron amenazas en el adjunto."
+
+
+def check_domain_age(domain):
+    """Verifica la antigüedad de un dominio y penaliza los nuevos."""
+    try:
+        domain_info = whois.whois(domain)
+        creation_date = domain_info.creation_date
+        if isinstance(creation_date, list):
+            creation_date = creation_date[0]
+        age_days = (datetime.now() - creation_date).days
+        return age_days
+    except:
+        return None
+
 
 def scan_with_virustotal(file_path):
     #Escanea un archivo en VirusTotal y devuelve el resultado
@@ -275,7 +360,7 @@ def scan_with_virustotal(file_path):
 
 # Cargar credenciales desde el archivo JSON
 def load_credentials():
-    with open("client_secret_319539446164-ta4n5cc4eu7sm63g75s0u52aefs1ckck.apps.googleusercontent.com.json") as f:
+    with open("client_secret.json") as f:
         creds = json.load(f)["web"]
     return creds
 
@@ -379,6 +464,17 @@ def check_dmarc(sender_email):
 
 
 
+
+def check_phishing_database(domain):
+    """Verifica si el dominio está en listas negras de phishing."""
+    url = f"https://www.phishtank.com/checkurl/{domain}"
+    response = requests.get(url)
+    if "verified phish" in response.text:
+        return True
+    return False
+
+
+
 def is_phishing(email_body, email_sender, email_subject, email_raw=None):
     #Analiza un correo para detectar phishing basado en puntuación de riesgo.
 
@@ -420,6 +516,9 @@ def is_phishing(email_body, email_sender, email_subject, email_raw=None):
 
     print(f"\n📩 Analizando correo de: {email_sender} | Asunto: {email_subject}")
 
+    
+
+
 
      ### 🔠 DETECCIÓN DE SPOOFING (SPF, DKIM, DMARC) ###
     spf_result = check_spf(email_sender)
@@ -444,6 +543,19 @@ def is_phishing(email_body, email_sender, email_subject, email_raw=None):
         score += 3
     if "❌" in dkim_result:
         score += 4
+
+
+    domain_age = check_domain_age(domain)
+    if domain_age is not None and domain_age < 30:
+        print(f"⚠️ Dominio nuevo detectado: {domain} (+4)")
+        score += 4
+
+
+    if check_phishing_database(domain):
+        print(f"🚨 Dominio en lista negra: {domain} (+6)")
+        score += 6
+
+
 
         ### 🔠 DETECCIÓN DE SPOOFING (Unicode y dominios) ###
     normalized = unicodedata.normalize("NFKD", email_sender)
@@ -516,7 +628,6 @@ def is_phishing(email_body, email_sender, email_subject, email_raw=None):
         return "Seguro ✅ (Bajo riesgo)"
 
 
-
 @app.route("/analyze_email", methods=["POST"])
 def analyze_email():
     email_body = request.form.get("email_content")
@@ -526,13 +637,30 @@ def analyze_email():
     if not email_body or not email_sender or not email_subject:
         return "⚠️ Todos los campos son obligatorios.", 400
 
-    is_suspicious = is_phishing(email_body, email_sender, email_subject)
-    return render_template("index.html", emails=get_emails(), phishing_result=is_suspicious)
+    # 🔍 Analizar el correo para detectar si es phishing
+    phishing_status = is_phishing(email_body, email_sender, email_subject)
+
+    # 🔎 Verificar autenticación de correo (SPF, DKIM, DMARC)
+    spf_status = check_spf(email_sender)
+    dmarc_status = check_dmarc(email_sender)
+    dkim_status = "❌ No se puede verificar DKIM"
+
+    # Guardar en la base de datos
+    save_email_to_db({
+        "subject": email_subject,
+        "from": email_sender,
+        "is_phishing": phishing_status,
+        "spf_result": spf_status,
+        "dkim_result": dkim_status,
+        "dmarc_result": dmarc_status
+    })
+
+    return render_template("index.html", emails=get_emails(), phishing_result=phishing_status)
 
 
 
 def get_emails():
-    #Recupera los correos electrónicos recientes desde Gmail a través de IMAP y los analiza.
+    # Recupera los correos electrónicos recientes desde Gmail a través de IMAP y los analiza.
     provider = session.get("provider")
     if not provider:
         print("⚠️ No hay un proveedor autenticado.")
@@ -556,7 +684,7 @@ def get_emails():
             print("⚠️ No se pudieron recuperar correos o la bandeja está vacía.")
             return []
 
-        email_ids = data[0].split()[-10:]  # Últimos 10 correos
+        email_ids = data[0].split()  # Eliminar filtro de fechas, traer todos los correos
         emails = []
 
         print(f"📩 Se encontraron {len(email_ids)} correos para procesar.")
@@ -590,7 +718,6 @@ def get_emails():
                                 body = msg.get_payload(decode=True).decode("utf-8")
                             except UnicodeDecodeError:
                                 body = msg.get_payload(decode=True).decode("latin-1", errors="ignore")
-
                     except Exception as e:
                         print(f"⚠️ Error al procesar el contenido del correo: {e}")
                         continue  # Evita que un correo defectuoso detenga el procesamiento
@@ -608,8 +735,6 @@ def get_emails():
                             attachment_result = analyze_attachment(part)
                             attachments_analysis.append(attachment_result)
 
-                    # 🔎 Verificación SPF, DKIM y DMARC con datos seguros
-                  
                     try:
                         # 🔍 Verificación de phishing con datos decodificados correctamente
                         phishing_status = is_phishing(body, sender, subject, email_raw=msg_bytes)
@@ -636,12 +761,20 @@ def get_emails():
                             "attachments": attachments_analysis  # 📂 Incluir análisis de adjuntos
                         })
 
+                        save_email_to_db({
+                                "subject": subject,
+                            "from": sender,
+                                "is_phishing": phishing_status,
+                                "spf_result": spf_status,
+                                "dkim_result": dkim_status,
+                                "dmarc_result": dmarc_status
+                        })
+
                     except Exception as e:
                         print(f"⚠️ Error al analizar correo: {e}")
                         continue  # Evita que un error de análisis detenga la ejecución
 
         mail.logout()
-
         print(f"✅ Correos recuperados correctamente: {len(emails)}")
         return emails
 
@@ -650,13 +783,10 @@ def get_emails():
         return []
 
 
-from collections import Counter
-from datetime import datetime
-
 @app.route("/reportes")
 def reportes():
-    emails = get_emails()
-    
+    emails = get_emails()  # Obtener correos
+
     if not emails:
         return jsonify({
             "error": "No hay datos disponibles",
@@ -665,28 +795,72 @@ def reportes():
             "trends": {"dates": [], "counts": []}
         }), 200
 
-    # 📊 Contar tipos de correos
+    # Contar tipos de correos
     phishing_count = sum(1 for email in emails if email["is_phishing"] == "Phishing 🚨 (Alto riesgo)")
     sospechoso_count = sum(1 for email in emails if email["is_phishing"] == "Sospechoso ⚠️ (Riesgo moderado)")
     seguro_count = len(emails) - phishing_count - sospechoso_count
 
-    # 📊 Contar archivos adjuntos analizados
+    # Contar archivos adjuntos analizados
     archivos_limpios = sum(1 for email in emails for adj in email.get("attachments", []) if "✅" in adj)
     archivos_sospechosos = sum(1 for email in emails for adj in email.get("attachments", []) if "⚠️" in adj)
     archivos_peligrosos = sum(1 for email in emails for adj in email.get("attachments", []) if "🚨" in adj)
 
-    # 📅 Obtener tendencias de phishing
-    phishing_dates = [email.get("date", datetime.now().strftime("%d-%b")) for email in emails if email["is_phishing"] == "Phishing 🚨 (Alto riesgo)"]
-    trend_counts = Counter(phishing_dates)  # Cuenta ocurrencias por fecha
+    trend_dates = []
+    trend_counts = []
+    
+    # Agrega esto en /reportes antes del return:
+    conn = sqlite3.connect("phishing_detector.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT fecha, estado FROM correos")
+    rows = cursor.fetchall()
+    conn.close()
 
-    trend_dates = sorted(trend_counts.keys())  # Fechas ordenadas
-    trend_values = [trend_counts[date] for date in trend_dates]  # Cantidad de phishing por fecha
+    trend_dict = defaultdict(int)
+    for fecha, estado in rows:
+        if "Phishing" in estado:
+            dia = fecha.split(" ")[0]
+            trend_dict[dia] += 1
+
+    trend_dates = list(trend_dict.keys())
+    trend_counts = list(trend_dict.values())
 
     return jsonify({
         "phishing_stats": [seguro_count, sospechoso_count, phishing_count],
         "attachment_stats": [archivos_limpios, archivos_sospechosos, archivos_peligrosos],
-        "trends": {"dates": trend_dates, "counts": trend_values}
+        "trends": {"dates": trend_dates, "counts": trend_counts}
     })
+
+
+
+
+@app.route("/metricas")
+def metricas():
+    conn = sqlite3.connect("phishing_detector.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT estado FROM correos")
+    estados = [r[0] for r in cursor.fetchall()]
+    conn.close()
+
+    phishing = estados.count("Phishing 🚨 (Alto riesgo)")
+    sospechosos = estados.count("Sospechoso ⚠️ (Riesgo moderado)")
+    seguros = estados.count("Seguro ✅ (Bajo riesgo)")
+
+    total = len(estados)
+    precision = phishing / total if total else 0
+    sensibilidad = phishing / (phishing + sospechosos) if (phishing + sospechosos) else 0
+    especificidad = seguros / total if total else 0
+
+    return jsonify({
+        "total": total,
+        "phishing": phishing,
+        "sospechosos": sospechosos,
+        "seguros": seguros,
+        "precision": round(precision * 100, 2),
+        "sensibilidad": round(sensibilidad * 100, 2),
+        "especificidad": round(especificidad * 100, 2)
+    })
+
+
 
 
 
@@ -694,30 +868,26 @@ def reportes():
 def exportar_csv():
     emails = get_emails()  # Recuperar la lista de correos
 
-    if not emails:
-        return "No hay datos disponibles", 400
-
     si = io.StringIO()
-    writer = csv.writer(si, delimiter=";", quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    writer = csv.writer(si)
+    
+    # Escribir encabezados en el CSV
+    writer.writerow(["Asunto", "De", "Estado", "SPF", "DKIM", "DMARC"])
 
-    # 📝 Encabezados mejorados
-    writer.writerow(["Asunto", "Remitente", "Estado de Seguridad", "SPF", "DKIM", "DMARC"])
-
-    # 📝 Escribir los datos de los correos
+    # Escribir los datos de los correos
     for email in emails:
         writer.writerow([
-            email.get("subject", "-"),
-            email.get("from", "-"),
-            email.get("is_phishing", "-"),
-            email.get("spf_result", "-"),
-            email.get("dkim_result", "-"),
-            email.get("dmarc_result", "-")
+            email.get("subject", ""),
+            email.get("from", ""),
+            email.get("is_phishing", ""),
+            email.get("spf_result", ""),
+            email.get("dkim_result", ""),
+            email.get("dmarc_result", "")
         ])
 
-    output = Response("\ufeff" + si.getvalue(), mimetype="text/csv")  # Agregar BOM para compatibilidad con Excel
+    output = Response(si.getvalue(), mimetype="text/csv")
     output.headers["Content-Disposition"] = "attachment; filename=reportes.csv"
     return output
-
 
 @app.route("/detalles_correo/<int:index>")
 def detalles_correo(index):
@@ -726,6 +896,64 @@ def detalles_correo(index):
         return "Correo no encontrado", 404
     email = emails[index]
     return render_template("detalles_correo.html", email=email)
+
+
+
+
+
+
+@app.route("/exportar_pdf/<int:index>")
+def exportar_pdf(index):
+    emails = get_emails()
+    if index < 0 or index >= len(emails):
+        return "Correo no encontrado", 404
+    
+    email = emails[index]
+
+    c = canvas.Canvas(f"reports/detalle_correo_{index}.pdf", pagesize=letter)
+    c.drawString(50, 750, f"Asunto: {email['subject']}")
+    c.drawString(50, 730, f"De: {email['from']}")
+    c.drawString(50, 710, f"Estado: {email['is_phishing']}")
+    c.save()
+
+    return send_file(f"reports/detalle_correo_{index}.pdf", as_attachment=True)
+
+
+
+
+
+
+@app.route("/historial")
+def historial():
+    """Muestra el historial de correos analizados."""
+    conn = sqlite3.connect("phishing_detector.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM correos ORDER BY fecha DESC")
+    correos = cursor.fetchall()
+    conn.close()
+    
+    return render_template("historial.html", correos=correos)
+
+
+def obtener_estadisticas_detalladas():
+    conn = sqlite3.connect("phishing_detector.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT estado, COUNT(*) 
+        FROM correos 
+        GROUP BY estado
+    """)
+    estadisticas = cursor.fetchall()
+    conn.close()
+    return estadisticas
+
+
+
+@app.route("/estadisticas")
+def estadisticas():
+    datos = obtener_estadisticas_detalladas()
+    return jsonify(datos)
+
 
 
 
@@ -742,4 +970,3 @@ def index():
 
 if __name__ == "__main__":
     app.run(debug=True)
-
