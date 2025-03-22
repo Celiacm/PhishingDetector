@@ -1,0 +1,47 @@
+# Entornos virtuales de Python
+venv/
+.env/
+*.env
+
+# Archivos de configuración sensibles
+client_secret.json
+sshkey
+sshkey.txt
+
+# Archivos y carpetas temporales
+__pycache__/
+*.py[cod]
+*.log
+*.sqlite3
+*.db
+*.db-journal
+
+# Carpetas de cache y dependencias
+node_modules/
+package-lock.json
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos generados automáticamente
+*.pdf
+*.csv
+*.zip
+*.tar
+*.gz
+*.rar
+
+# Reportes generados
+/reports/
+
+# Archivos de pruebas o temporales
+test_app.py
+*.bak
+*.tmp
+
+# Archivos del IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace

@@ -11,305 +11,9 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <script src="{{ url_for('static', filename='js/scripts.js') }}" defer></script>
 
-    <style>
-        body {
-            background-color: #f8f9fa;
-            font-family: Arial, sans-serif;
-        }
-        .container {
-            margin-top: 20px;
-            text-align: center;
-        }
-        .quote-box, .quiz-box, .map-box, .email-list {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            font-size: 1.2rem;
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 20px;
-        }
-        .hidden { display: none; }
-        .footer {
-            background-color: #343a40;
-            color: white;
-            padding: 15px 0;
-            text-align: center;
-            margin-top: 30px;
-        }
-        @media (max-width: 768px) {
-            .navbar-nav {
-                text-align: center;
-                width: 100%;
-            }
-        }
-        @media (max-width: 768px) {
-            .map-box iframe {
-                height: 300px; /* Reduce la altura en móviles */
-            }
-        }
-        @media (max-width: 576px) {
-            .quiz-box button {
-                display: block;
-                width: 100%;
-                margin-bottom: 10px;
-            }
-        }
-        @media (max-width: 576px) {
-            .footer p {
-                font-size: 14px;
-            }
-        }
-        @media (prefers-color-scheme: dark) {
-            body {
-                background-color: #121212;
-                color: white;
-            }
-        }
-
-        .card {
-            border-radius: 12px;
-            background: #ffffff;
-            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
-            transition: transform 0.2s;
-        }
-
-        .card:hover {
-            transform: scale(1.03);
-        }
-
-        h4 {
-            color: #343a40;
-            font-weight: bold;
-        }
-
-        .btn-success {
-            font-size: 1.2rem;
-            padding: 10px 20px;
-        }
-
-        #errorReportes {
-            font-size: 1.2rem;
-        }
-        .hero-section h1 {
-            text-shadow: 2px 2px 8px rgba(0,0,0,0.5);
-        }
-
-        .card {
-            border-radius: 12px;
-            transition: transform 0.2s;
-        }
-
-        .card:hover {
-            transform: scale(1.03);
-        }
-
-        .nav-link:hover {
-            color: #007bff !important;
-            transition: color 0.3s;
-        }
-
-        .btn-lg {
-            font-size: 1.2rem;
-            padding: 10px 20px;
-        }
-        .loading-screen {
-            position: fixed;
-            width: 100%;
-            height: 100%;
-            background: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-        }
-
-
-
-
-
-    </style>
-    <script>
-        const frases = [
-            "El 91% de los ataques cibernéticos comienzan con un correo de phishing. ¡Revisa bien tus mensajes!",
-            "Los correos de phishing suelen usar urgencia como estrategia. Si algo parece demasiado urgente, piénsalo dos veces.",
-            "Más del 70% de los correos fraudulentos usan dominios que imitan empresas legítimas."
-        ];
-
-        const quiz = [
-            { 
-                pregunta: "¿Cómo puedes detectar un correo de phishing?", 
-                opciones: ["A) Comprobar el dominio y los enlaces", "B) Hacer clic rápido y ver qué pasa"],
-                correcta: 0,
-                explicacion: "Siempre revisa los enlaces antes de hacer clic y verifica el remitente."
-            },
-            { 
-                pregunta: "¿Qué debes hacer si recibes un correo sospechoso?", 
-                opciones: ["A) Reportarlo y eliminarlo", "B) Responder y preguntar si es legítimo"],
-                correcta: 0,
-                explicacion: "Nunca respondas a correos sospechosos. Es mejor reportarlos y eliminarlos."
-            }
-        ];
-
-        function mostrarFrase() {
-            const index = Math.floor(Math.random() * frases.length);
-            document.getElementById("frase").innerText = frases[index];
-        }
-
-        function mostrarQuiz() {
-            const index = Math.floor(Math.random() * quiz.length);
-            const pregunta = quiz[index];
-            document.getElementById("pregunta").innerText = pregunta.pregunta;
-            document.getElementById("opcion1").innerText = pregunta.opciones[0];
-            document.getElementById("opcion2").innerText = pregunta.opciones[1];
-            document.getElementById("opcion1").onclick = () => mostrarResultado(index, 0);
-            document.getElementById("opcion2").onclick = () => mostrarResultado(index, 1);
-        }
-
-        function mostrarResultado(index, seleccion) {
-            const resultadoBox = document.getElementById("resultado");
-            if (quiz[index].correcta === seleccion) {
-                resultadoBox.innerHTML = "✅ ¡Correcto!";
-            } else {
-                resultadoBox.innerHTML = "❌ Incorrecto. " + quiz[index].explicacion;
-            }
-        }
-
-        function showSection(section) {
-            document.querySelectorAll('.section').forEach(div => div.classList.add('hidden'));
-            document.getElementById(section).classList.remove('hidden');
-        }
-
-        window.onload = function() {
-            mostrarFrase();
-            mostrarQuiz();
-        }
-        function verDetalles(index) {
-            const modalBody = document.getElementById("detallesCorreo");
-
-            // Mensaje de carga mientras se obtiene la información
-            modalBody.innerHTML = "<p class='text-center text-muted'>Cargando detalles...</p>";
-
-            // Hacer la solicitud para obtener los detalles
-            fetch(`/detalles_correo/${index}`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error("Error al obtener los detalles del correo.");
-                    }
-                    return response.text();
-                })
-                .then(data => {
-                    modalBody.innerHTML = data; // Cargar el contenido en el modal
-                })
-                .catch(error => {
-                    modalBody.innerHTML = `<p class='text-danger text-center'>No se pudieron cargar los detalles.</p>`;
-                    console.error("Error:", error);
-                });
-
-            // Mostrar el modal
-            new bootstrap.Modal(document.getElementById("modalDetalles")).show();
-        }
-
-
-        document.addEventListener("DOMContentLoaded", function() {
-            setTimeout(() => {
-                document.getElementById("loading").style.display = "none";
-            }, 1500);
-        });
-
-        function reportes(){
-            window.location.href = `/reportes`;
-        }
-        // 🔎 Obtener métricas del sistema
-        fetch('/metricas')
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById("precision").innerText = data.precision;
-                document.getElementById("sensibilidad").innerText = data.sensibilidad;
-                document.getElementById("especificidad").innerText = data.especificidad;
-            })
-            .catch(error => {
-                console.error("Error al obtener métricas:", error);
-            });
-
-
-        function renderCharts(phishingData, attachmentsData, trendsData) {
-            const phishingCtx = document.getElementById('phishingChart').getContext('2d');
-            new Chart(phishingCtx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['Seguro ✅', 'Sospechoso ⚠️', 'Phishing 🚨'],
-                    datasets: [{
-                        data: phishingData,
-                        backgroundColor: ['green', 'orange', 'red']
-                    }]
-                }
-            });
-
-            const attachmentsCtx = document.getElementById('attachmentsChart').getContext('2d');
-            new Chart(attachmentsCtx, {
-                type: 'bar',
-                data: {
-                    labels: ['Limpios ✅', 'Sospechosos ⚠️', 'Peligrosos 🚨'],
-                    datasets: [{
-                        data: attachmentsData,
-                        backgroundColor: ['blue', 'yellow', 'red']
-                    }]
-                }
-            });
-
-            if (trendsData.dates.length > 0) {
-                const trendsCtx = document.getElementById('phishingTrendsChart').getContext('2d');
-                new Chart(trendsCtx, {
-                    type: 'line',
-                    data: {
-                        labels: trendsData.dates,
-                        datasets: [{
-                            label: 'Correos Phishing por Día 🚨',
-                            data: trendsData.counts,
-                            borderColor: 'red',
-                            backgroundColor: 'rgba(255, 0, 0, 0.2)',
-                            fill: true
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: {
-                            legend: { display: false }
-                        }
-                    }
-                });
-            } else {
-                document.getElementById("phishingTrendsChart").outerHTML = "<p class='text-muted text-center'>No hay datos de tendencias aún.</p>";
-            }
-        }
-
-        // Cargar datos de Flask y manejar errores
-        fetch('/reportes')
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    console.warn(data.error);
-                    document.getElementById("errorReportes").style.display = "block";
-                } else {
-                    document.getElementById("errorReportes").style.display = "none";
-                    renderCharts(data.phishing_stats, data.attachment_stats, data.trends);
-                }
-            })
-            .catch(error => {
-                console.error("Error al cargar reportes:", error);
-                document.getElementById("errorReportes").style.display = "block";
-            });
-
-
-
-
-
-
-
-    </script>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
@@ -430,6 +134,20 @@
                     <label for="email_subject" class="form-label">Asunto:</label>
                     <input type="text" name="email_subject" class="form-control" required>
                 </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" value="true" name="modo_prueba" id="modo_prueba">
+                    <label class="form-check-label" for="modo_prueba">
+                        Modo prueba (guardar resultados)
+                    </label>
+                </div>
+                <div class="mb-3 mt-2">
+                    <label for="tipo_real" class="form-label">¿Este correo es legítimo o phishing?</label>
+                    <select name="tipo_real" class="form-select">
+                        <option value="phishing">Phishing</option>
+                        <option value="legit">Legítimo</option>
+                    </select>
+                </div>
+                
                 <button type="submit" class="btn btn-primary">🔍 Analizar</button>
             </form>
                     <!-- 📌 Mostrar Resultado del Análisis -->
@@ -485,8 +203,10 @@
                         </div>
                     </div>
                 </div>
-
-        
+                
+                <div class="text-center mt-4">
+                    <a href="/exportar_resultados_test" class="btn btn-outline-dark mt-3">📤 Exportar Validación</a>
+                </div>
                 <!-- Botón para exportar datos -->
                 <div class="text-center mt-4">
                     <a href="/exportar_csv" class="btn btn-lg btn-success shadow">📤 Exportar a CSV</a>
