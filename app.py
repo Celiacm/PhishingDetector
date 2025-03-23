@@ -5,13 +5,13 @@ import imaplib
 import logging
 from flask import Flask, redirect, url_for, session, request, render_template, jsonify, Response, send_file
 from requests_oauthlib import OAuth2Session
-from datetime import datetime
+from fpdf import FPDF
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from dotenv import load_dotenv
 from modules.scheduler import run as start_scheduler
 from modules.error_handler import init_error_handlers
-
+from modules.db import get_email_by_id
 
 # Importar módulos locales
 import modules.db as db        # Funciones de base de datos
@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Cargar variables de entorno desde .env
 load_dotenv()
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
 
 start_scheduler()
@@ -46,7 +47,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY")
 
 # Permitir transporte inseguro para OAuth (solo desarrollo/testing)
-os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
 
 # Inicializar la base de datos (crea tablas si no existen)
 db.init_db()
@@ -176,6 +177,8 @@ def get_emails():
                     msg = email_module.message_from_bytes(msg_bytes, policy=policy.default)
                     subject = msg.get("subject", "(Sin asunto)")
                     sender = msg.get("from", "Desconocido")
+                    message_id = msg.get("Message-ID", "").strip()
+
                     # Obtener cuerpo del mensaje en texto plano
                     try:
                         if msg.is_multipart():
@@ -200,10 +203,12 @@ def get_emails():
                             attachments_analysis.append(result_attach)
                     # Analizar el correo para determinar si es phishing y obtener autenticaciones
                     try:
-                        phishing_status = email_analysis.is_phishing(body, sender, subject, email_raw=msg_bytes)
                         spf_status = email_analysis.check_spf(sender)
                         dkim_status = email_analysis.check_dkim(msg_bytes)
                         dmarc_status = email_analysis.check_dmarc(sender)
+                        phishing_status, reasons = email_analysis.is_phishing(
+                            body, sender, subject, email_raw=msg_bytes, spf=spf_status, dkim=dkim_status, dmarc=dmarc_status
+                        )
                     except Exception as e:
                         logger.error(f"⚠️ Error durante el análisis del correo ID {e_id}: {e}")
                         continue
@@ -218,8 +223,12 @@ def get_emails():
                         "spf_result": spf_status,
                         "dkim_result": dkim_status,
                         "dmarc_result": dmarc_status,
-                        "attachments": attachments_analysis
+                        "attachments": attachments_analysis,
+                        "message_id": message_id,
+                        "reasons": reasons  # ✅ Motivos añadidos
                     }
+
+
                     emails.append(email_data)
                     db.save_email_to_db(email_data)  # Registrar en la base de datos
         mail.logout()
@@ -228,76 +237,6 @@ def get_emails():
         logger.error(f"⚠️ Error general al obtener correos: {e}")
         return []
     return emails
-
-def get_emails_without_session(limit=10):
-    """
-    Recupera correos de Gmail sin usar la sesión de Flask (útil para procesos en segundo plano).
-    Usa las variables de entorno OAUTH_ACCESS_TOKEN y OAUTH_EMAIL.
-    Limita la cantidad de correos recuperados a `limit` más recientes.
-    """
-    imap_server = OAUTH_CONFIG["gmail"]["imap_server"]
-    token = os.environ.get("OAUTH_ACCESS_TOKEN")
-    email_account = os.environ.get("OAUTH_EMAIL")
-    if not token or not email_account:
-        logger.warning("⚠️ Credenciales OAuth no disponibles para escaneo automático.")
-        return []
-    emails = []
-    try:
-        mail = imaplib.IMAP4_SSL(imap_server)
-        mail.authenticate("XOAUTH2", lambda x: f"user={email_account}\1auth=Bearer {token}\1\1")
-        mail.select("inbox")
-        result, data = mail.search(None, "ALL")
-        if result != "OK" or not data or not data[0]:
-            logger.warning("⚠️ No se pudieron recuperar correos en escaneo automático (bandeja vacía o error).")
-            return []
-        email_ids = data[0].split()
-        if limit:
-            email_ids = email_ids[-limit:]  # Tomar solo los últimos 'limit' correos
-        logger.info(f"🔍 Escaneo automático: {len(email_ids)} correos a procesar.")
-        for e_id in email_ids:
-            result, msg_data = mail.fetch(e_id, "(RFC822)")
-            if result != "OK":
-                logger.warning(f"⚠️ Error al obtener (auto) el correo ID {e_id}.")
-                continue
-            for response_part in msg_data:
-                if isinstance(response_part, tuple):
-                    msg_bytes = response_part[1]
-                    import email as email_module
-                    from email import policy
-                    msg = email_module.message_from_bytes(msg_bytes, policy=policy.default)
-                    subject = msg.get("subject", "(Sin asunto)")
-                    sender = msg.get("from", "Desconocido")
-                    # Obtener texto del correo
-                    body = ""
-                    try:
-                        if msg.is_multipart():
-                            for part in msg.walk():
-                                if part.get_content_type() == "text/plain":
-                                    body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
-                                    break
-                        else:
-                            body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
-                    except Exception as e:
-                        logger.error(f"⚠️ Error leyendo cuerpo de correo (auto) ID {e_id}: {e}")
-                        continue
-                    phishing_status = email_analysis.is_phishing(body, sender, subject, email_raw=msg_bytes)
-                    # Si es phishing de alto riesgo, alertar por Telegram
-                    if phishing_status.startswith("Phishing"):
-                        utils.send_telegram_alert({"from": sender, "subject": subject}, phishing_status)
-                    # (Opcionalmente, podríamos guardar en BD o hacer otros procesos en segundo plano)
-                    emails.append({
-                        "subject": subject,
-                        "from": sender,
-                        "is_phishing": phishing_status
-                        # Nota: Se omiten detalles y adjuntos para eficiencia en escaneo automático
-                    })
-        mail.logout()
-        logger.info(f"📩 Escaneo automático completado. Correos analizados: {len(emails)}.")
-    except Exception as e:
-        logger.error(f"⚠️ Error en escaneo automático de correos: {e}")
-        return []
-    return emails
-
 
 
 # Rutas para análisis manual y visualización de datos
@@ -343,73 +282,104 @@ def analyze_email():
 
 @app.route("/historial")
 def historial():
-    """Muestra una tabla con el historial de correos analizados (guardados en BD)."""
-    correos = db.get_email_history()
+    correos_raw = db.get_email_history()
+    correos = []
+    for row in correos_raw:
+        correos.append({
+            "id": row["id"],
+            "subject": row["subject"],
+            "sender": row["sender"],
+            "estado": row["estado"],
+            "spf": row["spf"],
+            "dkim": row["dkim"],
+            "dmarc": row["dmarc"],
+            "adjuntos": row["adjuntos"],
+            "reasons": row["reasons"],
+            "fecha": row["fecha"]
+        })
     return render_template("historial.html", correos=correos)
 
-@app.route("/detalles_correo/<int:idx>")
-def detalles_correo(idx):
-    """Muestra los detalles de un correo específico por índice en la lista actual."""
-    emails = get_emails()
-    if idx < 0 or idx >= len(emails):
+
+@app.route('/detalles_correo/<int:correo_id>')
+def detalles_correo(correo_id):
+    row = get_email_by_id(correo_id)
+    if not row:
         return "Correo no encontrado", 404
-    email = emails[idx]
+
+    # Convertimos el row de SQLite a diccionario para usarlo fácilmente en el HTML
+    email = {
+        "subject": row["subject"],
+        "from": row["sender"],
+        "is_phishing": row["estado"],
+        "spf_result": row["spf"],
+        "dkim_result": row["dkim"],
+        "dmarc_result": row["dmarc"],
+        "attachments": eval(row["adjuntos"]) if row["adjuntos"] else [],
+        "reasons": row["reasons"].split("; ") if row["reasons"] else []
+    }
+
     return render_template("detalles_correo.html", email=email)
 
+
+
 # Rutas para exportar datos
-@app.route("/exportar_csv")
-def exportar_csv():
-    """Genera un CSV con el listado de correos analizados actualmente (en la sesión actual)."""
-    emails = get_emails()
-    # Crear CSV en memoria
+
+@app.route("/export_csv")
+def export_csv():
+    correos = db.get_all_emails()
     si = io.StringIO()
     writer = csv.writer(si)
-    writer.writerow(["Asunto", "Remitente", "Estado", "SPF", "DKIM", "DMARC"])
-    for email in emails:
-        writer.writerow([
-            email.get("subject", ""),
-            email.get("from", ""),
-            email.get("is_phishing", ""),
-            email.get("spf_result", ""),
-            email.get("dkim_result", ""),
-            email.get("dmarc_result", "")
-        ])
-    # Enviar CSV como archivo adjunto
-    output = Response(si.getvalue(), mimetype="text/csv")
-    output.headers["Content-Disposition"] = "attachment; filename=correos_analizados.csv"
-    return output
+    writer.writerow(["ID", "Asunto", "Remitente", "Estado", "SPF", "DKIM", "DMARC", "Fecha", "Motivos"])
+    for c in correos:
+        writer.writerow([c["id"], c["subject"], c["sender"], c["estado"], c["spf"], c["dkim"], c["dmarc"], c["fecha"], c["reasons"]])
+    mem = io.BytesIO()
+    mem.write(si.getvalue().encode("utf-8"))
+    mem.seek(0)
+    return send_file(mem, mimetype="text/csv", as_attachment=True, download_name="reporte_phishing.csv")
 
-@app.route("/exportar_pdf/<int:idx>")
-def exportar_pdf(idx):
-    """Exporta un reporte PDF con detalles de un correo específico."""
-    emails = get_emails()
-    if idx < 0 or idx >= len(emails):
-        return "Correo no encontrado", 404
-    email = emails[idx]
-    # Asegurar que la carpeta "reports" existe
-    if not os.path.isdir("reports"):
-        os.makedirs("reports")
-    pdf_path = os.path.join("reports", f"detalle_correo_{idx}.pdf")
-    # Generar PDF simple con asunto, remitente y estado
-    c = canvas.Canvas(pdf_path, pagesize=letter)
-    c.drawString(50, 750, f"Asunto: {email['subject']}")
-    c.drawString(50, 730, f"De: {email['from']}")
-    c.drawString(50, 710, f"Estado: {email['is_phishing']}")
-    c.save()
-    return send_file(pdf_path, as_attachment=True)
 
-@app.route("/exportar_resultados_test")
-def exportar_resultados_test():
-    """Exporta a CSV los resultados acumulados del modo prueba/validación."""
-    resultados = db.get_test_results()
-    si = io.StringIO()
-    writer = csv.writer(si)
-    writer.writerow(["Fecha", "¿Detección Correcta?", "Tipo Real", "Tipo Detectado"])
-    for fila in resultados:
-        writer.writerow(list(fila))
-    output = Response(si.getvalue(), mimetype="text/csv")
-    output.headers["Content-Disposition"] = "attachment; filename=resultados_test.csv"
-    return output
+
+
+
+    
+@app.route("/export_pdf")
+def export_pdf():
+    correos = db.get_all_emails()
+    if not correos:
+        return "No hay correos para exportar.", 400
+
+    from fpdf import FPDF
+    import io
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(0, 10, "Reporte de Correos Analizados - PhishingDetector", ln=True, align="C")
+    pdf.ln(10)
+
+    for c in correos:
+        pdf.set_font("Arial", size=10)
+        texto = (
+            f"ID: {c['id']}\n"
+            f"Asunto: {c['subject']}\n"
+            f"Remitente: {c['sender']}\n"
+            f"Estado: {c['estado']}\n"
+            f"SPF: {c['spf']} | DKIM: {c['dkim']} | DMARC: {c['dmarc']}\n"
+            f"Fecha: {c['fecha']}\n"
+            f"Motivos: {c['reasons']}"
+        )
+        # Reemplazar caracteres no compatibles con latin-1
+        texto = texto.encode("latin-1", "replace").decode("latin-1")
+        pdf.multi_cell(0, 8, texto, border=1)
+        pdf.ln(2)
+
+    # Exportar como string y luego convertir a bytes
+    pdf_bytes = pdf.output(dest='S').encode('latin-1')
+    mem = io.BytesIO(pdf_bytes)
+    mem.seek(0)
+    return send_file(mem, mimetype="application/pdf", as_attachment=True, download_name="reporte_phishing.pdf")
+
+
 
 # Rutas de estadísticas y métricas
 @app.route("/reportes")
@@ -438,11 +408,16 @@ def reportes():
     # Calcular tendencias de phishing por fecha (días con phishing alto riesgo)
     history = db.get_email_history()
     trend_dict = {}
-    for _, _, _, estado, _, _, _, fecha in history:
-        # fecha formato TIMESTAMP (YYYY-MM-DD HH:MM:SS), tomamos la parte de fecha
-        dia = str(fecha).split(" ")[0]
-        if "Phishing" in estado:
-            trend_dict[dia] = trend_dict.get(dia, 0) + 1
+    for fila in history:
+        try:
+            estado = fila[3]
+            fecha = fila[-1]
+            dia = str(fecha).split(" ")[0]
+            if "Phishing" in estado:
+                trend_dict[dia] = trend_dict.get(dia, 0) + 1
+        except Exception as e:
+            print(f"Error analizando fila del historial: {e}")
+
     trend_dates = list(trend_dict.keys())
     trend_counts = list(trend_dict.values())
     # Devolver datos en formato JSON
@@ -482,7 +457,8 @@ def index():
     if "oauth_token" not in session:
         # Si el usuario no ha iniciado sesión OAuth, mostrar pantalla de login
         return redirect(url_for("login", provider="gmail"))
-    emails = get_emails()
+    emails = db.get_email_history()
+
     # Renderizar plantilla principal con la lista de emails analizados
     return render_template("index.html", emails=emails)
 

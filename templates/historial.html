@@ -10,6 +10,7 @@
         <table class="table table-striped">
             <thead>
                 <tr>
+                    <th>Id</th>
                     <th>Asunto</th>
                     <th>Remitente</th>
                     <th>Estado</th>
@@ -17,18 +18,41 @@
                     <th>DKIM</th>
                     <th>DMARC</th>
                     <th>Fecha</th>
+                    <th>Motivos</th>
                 </tr>
             </thead>
             <tbody>
                 {% for correo in correos %}
                 <tr>
-                    <td>{{ correo[1] }}</td>
-                    <td>{{ correo[2] }}</td>
-                    <td>{{ correo[3] }}</td>
-                    <td>{{ correo[4] }}</td>
-                    <td>{{ correo[5] }}</td>
-                    <td>{{ correo[6] }}</td>
-                    <td>{{ correo[7] }}</td>
+                    <td>{{ correo.id }}</td>
+                    <td>{{ correo.subject }}</td>
+                    <td>{{ correo.sender or correo.from }}</td>
+                    <td>
+                        {% if "Phishing" in correo.estado %}
+                            <span class="text-danger fw-bold">🚨 {{ correo.estado }}</span>
+                        {% elif "Sospechoso" in correo.estado %}
+                            <span class="text-warning fw-bold">⚠️ {{ correo.estado }}</span>
+                        {% else %}
+                            <span class="text-success fw-bold">✅ {{ correo.estado }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ correo.spf }}</td>
+                    <td>{{ correo.dkim }}</td>
+                    <td>{{ correo.dmarc }}</td>
+                    <td>{{ correo.fecha }}</td>
+                    <td>
+                        {% if correo.reasons is string %}
+                            <small>{{ correo.reasons[:100] }}...</small>
+                        {% elif correo.reasons %}
+                            <ul class="mb-0">
+                                {% for motivo in correo.reasons %}
+                                    <li>{{ motivo }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            <span class="text-muted">Sin motivos</span>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

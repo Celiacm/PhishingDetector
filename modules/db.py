@@ -1,30 +1,27 @@
 import sqlite3
-import logging
+import os
 
-logger = logging.getLogger(__name__)
-
-DB_PATH = "phishing_detector.db"
+DB_NAME = "phishing_detector.db"
 
 def init_db():
-    """Crea la base de datos (si no existe) y las tablas necesarias."""
-    try:
-        conn = sqlite3.connect(DB_PATH)
+    with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
-        # Tabla de correos analizados
-        cursor.execute("""
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS correos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                asunto TEXT,
-                remitente TEXT,
+                subject TEXT,
+                sender TEXT,
                 estado TEXT,
                 spf TEXT,
                 dkim TEXT,
                 dmarc TEXT,
-                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                adjuntos TEXT,
+                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                message_id TEXT UNIQUE,
+                reasons TEXT
             )
-        """)
-        # Tabla de resultados de pruebas (modo prueba de análisis)
-        cursor.execute("""
+        ''')
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS resultados_test (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -32,73 +29,79 @@ def init_db():
                 tipo_real TEXT,
                 tipo_detectado TEXT
             )
-        """)
+        ''')
         conn.commit()
-    except Exception as e:
-        logger.error(f"Error al inicializar la base de datos: {e}")
-    finally:
-        conn.close()
 
-def save_email_to_db(email_data):
-    """Inserta un registro de correo analizado en la tabla 'correos'."""
-    try:
-        conn = sqlite3.connect(DB_PATH)
+def save_email_to_db(data):
+    with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO correos (asunto, remitente, estado, spf, dkim, dmarc)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            email_data.get("subject"),
-            email_data.get("from"),
-            email_data.get("is_phishing"),
-            email_data.get("spf_result"),
-            email_data.get("dkim_result"),
-            email_data.get("dmarc_result")
-        ))
-        conn.commit()
-    except Exception as e:
-        logger.error(f"Error al guardar correo en BD: {e}")
-    finally:
-        conn.close()
-
-def save_test_result(correcto, tipo_real, tipo_detectado):
-    """Guarda un resultado de prueba (validación manual) en la tabla 'resultados_test'."""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO resultados_test (correcto, tipo_real, tipo_detectado)
-            VALUES (?, ?, ?)
-        """, (correcto, tipo_real, tipo_detectado))
-        conn.commit()
-    except Exception as e:
-        logger.error(f"Error al guardar resultado de test en BD: {e}")
-    finally:
-        conn.close()
+        try:
+            cursor.execute('''INSERT INTO correos 
+                (subject, sender, estado, spf, dkim, dmarc, adjuntos, fecha, message_id, reasons)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)''', (
+                data.get("subject"),
+                data.get("from"),
+                data.get("is_phishing"),
+                data.get("spf_result"),
+                data.get("dkim_result"),
+                data.get("dmarc_result"),
+                str(data.get("attachments", [])),
+                data.get("message_id"),
+                "; ".join(data.get("reasons", []))
+            ))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            print(f"📌 Correo con ID {data.get('message_id')} ya existe. No se guarda.")
 
 def get_email_history():
-    """Recupera todos los correos analizados almacenados, ordenados por fecha descendente."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect("phishing_detector.db")
+    conn.row_factory = sqlite3.Row  # Permite acceder a columnas por nombre
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM correos ORDER BY fecha DESC")
-    correos = cursor.fetchall()
+    cursor.execute("""
+        SELECT id, subject, sender, estado, spf, dkim, dmarc, adjuntos, reasons, fecha
+        FROM correos ORDER BY fecha DESC
+    """)
+    rows = cursor.fetchall()
     conn.close()
-    return correos
+    return [dict(row) for row in rows]  # ← Esto lo convierte a lista de diccionarios
 
-def get_test_results():
-    """Recupera todos los resultados de pruebas de detección almacenados."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT fecha, correcto, tipo_real, tipo_detectado FROM resultados_test")
-    resultados = cursor.fetchall()
-    conn.close()
-    return resultados
 
 def get_email_states():
-    """Recupera la lista de estados de todos los correos analizados (para cálculos estadísticos)."""
-    conn = sqlite3.connect(DB_PATH)
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT estado FROM correos")
+        return cursor.fetchall()
+
+def save_test_result(correcto, tipo_real, tipo_detectado):
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''INSERT INTO resultados_test (correcto, tipo_real, tipo_detectado)
+                          VALUES (?, ?, ?)''', (correcto, tipo_real, tipo_detectado))
+        conn.commit()
+
+def get_test_results():
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT fecha, correcto, tipo_real, tipo_detectado FROM resultados_test ORDER BY fecha DESC")
+        return cursor.fetchall()
+
+def get_email_by_id(correo_id):
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT estado FROM correos")
-    estados = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM correos WHERE id = ?", (correo_id,))
+    email = cursor.fetchone()
+    
     conn.close()
-    return estados
+    return email
+
+
+def get_all_emails():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM correos ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]

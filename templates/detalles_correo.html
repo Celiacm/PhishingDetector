@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Detalles del Correo</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
 </head>
 <body>
@@ -56,6 +62,12 @@
                         <span class="text-success">✅ {{ email.dmarc_result }}</span>
                     {% endif %}
                 </p>
+                {% if email.spf_result.startswith('❌') and email.dkim_result.startswith('❌') and email.dmarc_result.startswith('❌') %}
+                    <div class="alert alert-warning mt-3">
+                        ⚠️ Este correo no tiene mecanismos de autenticación válidos (SPF, DKIM, DMARC).
+                    </div>
+                {% endif %}
+
             </div>
 
             <!-- Adjuntos analizados -->
@@ -79,6 +91,26 @@
                     <p class="text-muted">No hay archivos adjuntos en este correo.</p>
                 {% endif %}
             </div>
+
+            <div class="border rounded p-3 mt-3">
+                <h5>🔍 Motivos del Análisis</h5>
+                {% if email.reasons %}
+                  <ul>
+                    {% for motivo in email.reasons %}
+                      <li>{{ motivo }}</li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <p class="text-muted">No se han identificado motivos específicos.</p>
+                {% endif %}
+              </div>
+              
+            {% if "Error" in email.spf_result and "Error" in email.dkim_result and "Error" in email.dmarc_result %}
+                <div class="alert alert-danger mt-3">
+                    ⚠️ Este correo no supera ninguna verificación de autenticación (SPF, DKIM ni DMARC). Podría ser suplantación.
+                </div>
+            {% endif %}
+
 
             <!-- Botón de cierre -->
             <div class="text-center mt-4">
