@@ -6,6 +6,7 @@ import logging
 from flask import Flask, redirect, url_for, session, request, render_template, jsonify, Response, send_file
 from requests_oauthlib import OAuth2Session
 from fpdf import FPDF
+from datetime import datetime
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from dotenv import load_dotenv
@@ -420,27 +421,57 @@ def reportes():
 
     trend_dates = list(trend_dict.keys())
     trend_counts = list(trend_dict.values())
+    
+    timeline_data = []
+    for correo in db.get_email_history():
+        if "Phishing" in correo["estado"]:
+            fecha = correo["fecha"]
+            timeline_data.append({
+                "fecha": fecha,
+                "estado": correo["estado"],
+                "asunto": correo["subject"]
+            })
+
     # Devolver datos en formato JSON
     return jsonify({
         "phishing_stats": [seguro_count, sospechoso_count, phishing_count],
         "attachment_stats": [archivos_limpios, archivos_sospechosos, archivos_peligrosos],
-        "trends": {"dates": trend_dates, "counts": trend_counts}
+        "trends": {"dates": trend_dates, "counts": trend_counts},
+        "timeline": timeline_data
     })
 
 @app.route("/metricas")
 def metricas():
-    """
-    Calcula métricas de desempeño del detector usando los datos almacenados.
-    Retorna JSON con total de correos y porcentajes de precisión, sensibilidad y especificidad de detección de phishing.
-    """
-    estados = [row[0] for row in db.get_email_states()]
-    phishing = estados.count("Phishing 🚨 (Alto riesgo)")
-    sospechosos = estados.count("Sospechoso ⚠️ (Riesgo moderado)")
-    seguros = estados.count("Seguro ✅ (Bajo riesgo)")
-    total = len(estados)
+    history = db.get_email_history()
+    if not history:
+        return jsonify({
+            "total": 0,
+            "phishing": 0,
+            "sospechosos": 0,
+            "seguros": 0,
+            "precision": 0,
+            "sensibilidad": 0,
+            "especificidad": 0,
+            "porcentaje_sospechosos": 0,
+            "ultimo_analisis": "--"
+        })
+
+    phishing = sum(1 for e in history if "Phishing" in e["estado"])
+    sospechosos = sum(1 for e in history if "Sospechoso" in e["estado"])
+    seguros = sum(1 for e in history if "Seguro" in e["estado"])
+    total = len(history)
+
     precision = (phishing / total * 100) if total else 0
     sensibilidad = (phishing / (phishing + sospechosos) * 100) if (phishing + sospechosos) else 0
     especificidad = (seguros / total * 100) if total else 0
+    porcentaje_sospechosos = (sospechosos / total * 100) if total else 0
+
+    fechas = [e["fecha"] for e in history if e["fecha"]]
+    try:
+        ultimo_analisis = max(fechas) if fechas else None
+    except Exception:
+        ultimo_analisis = None
+
     return jsonify({
         "total": total,
         "phishing": phishing,
@@ -448,8 +479,18 @@ def metricas():
         "seguros": seguros,
         "precision": round(precision, 2),
         "sensibilidad": round(sensibilidad, 2),
-        "especificidad": round(especificidad, 2)
+        "especificidad": round(especificidad, 2),
+        "porcentaje_sospechosos": round(porcentaje_sospechosos, 2),
+        "ultimo_analisis": str(ultimo_analisis) if ultimo_analisis else "--"
     })
+
+
+
+
+@app.context_processor
+def inject_now():
+    return {'now': datetime.utcnow}
+
 
 @app.route("/")
 def index():

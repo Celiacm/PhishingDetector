@@ -84,3 +84,5 @@ def get_emails_without_session(limit=10):
         print(f"⚠️ Error en escaneo automático de correos: {e}")
         return []
     return emails
+
+
