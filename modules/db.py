@@ -18,9 +18,11 @@ def init_db():
                 adjuntos TEXT,
                 fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 message_id TEXT UNIQUE,
-                reasons TEXT
+                reasons TEXT,
+                score INTEGER DEFAULT 0
             )
         ''')
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS resultados_test (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,8 +39,8 @@ def save_email_to_db(data):
         cursor = conn.cursor()
         try:
             cursor.execute('''INSERT INTO correos 
-                (subject, sender, estado, spf, dkim, dmarc, adjuntos, fecha, message_id, reasons)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)''', (
+                (subject, sender, estado, spf, dkim, dmarc, adjuntos, fecha, message_id, reasons, score)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?)''', (
                 data.get("subject"),
                 data.get("from"),
                 data.get("is_phishing"),
@@ -47,8 +49,10 @@ def save_email_to_db(data):
                 data.get("dmarc_result"),
                 str(data.get("attachments", [])),
                 data.get("message_id"),
-                "; ".join(data.get("reasons", []))
+                "; ".join(data.get("reasons", [])),
+                data.get("score", 0)  # 👈 Aquí va el score
             ))
+
             conn.commit()
         except sqlite3.IntegrityError:
             print(f"📌 Correo con ID {data.get('message_id')} ya existe. No se guarda.")
@@ -58,9 +62,11 @@ def get_email_history():
     conn.row_factory = sqlite3.Row  # Permite acceder a columnas por nombre
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, subject, sender, estado, spf, dkim, dmarc, adjuntos, reasons, fecha
+        SELECT id, subject, sender, estado, spf, dkim, dmarc, adjuntos, reasons, score, fecha
         FROM correos ORDER BY fecha DESC
     """)
+
+
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]  # ← Esto lo convierte a lista de diccionarios
@@ -105,3 +111,6 @@ def get_all_emails():
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+
+

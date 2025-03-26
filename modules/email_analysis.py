@@ -9,6 +9,11 @@ from urllib.parse import urlparse
 
 # Carga reglas YARA (compila desde archivo si existe)
 yara_rules = yara.compile(filepath="modules/yara_rules.yar") if os.path.exists("modules/yara_rules.yar") else None
+# Nuevas listas para detección
+SHORT_URLS = ["bit.ly", "tinyurl.com", "t.co", "ow.ly", "cutt.ly", "is.gd", "tiny.cc"]
+SUSPECT_DOMAINS = ["apple.verify.com", "paypal-login.net", "google-alerts.info"]
+DANGEROUS_EXTENSIONS = [".exe", ".bat", ".vbs", ".scr"]
+
 
 def is_phishing(body, sender, subject, email_raw=None, spf=None, dkim=None, dmarc=None, attachments=None):
     score = 0
@@ -102,6 +107,10 @@ def is_phishing(body, sender, subject, email_raw=None, spf=None, dkim=None, dmar
             if any(shortener in url for shortener in shortener_domains):
                 score += 2
                 reasons.append(f"Enlace acortado: {url}")
+            domain = urlparse(url).netloc.lower()
+            if any(suspect in domain for suspect in SUSPECT_DOMAINS):
+                score += 3
+                reasons.append(f"Dominio sospechoso detectado: {domain}")
             # 4.2 Parámetro de redirección en la URL
             if "redirect=" in url or "redirect/" in url:
                 score += 1
@@ -134,12 +143,13 @@ def is_phishing(body, sender, subject, email_raw=None, spf=None, dkim=None, dmar
     # 5. Análisis de palabras clave sospechosas
     keywords = [
         "verify", "password", "urgent", "click here", "bank", "confirm", "account", "login", "reset",
-        "verifica", "contraseña", "urgente", "actualiza tu cuenta", "actualizar", "clave"
+        "verifica", "contraseña", "urgente", "actualiza tu cuenta", "actualizar", "clave", "urgente", "verifica tu cuenta", "actualiza tu información", "haz clic aquí", "contraseña", "confirmar"
     ]
-    found_keywords = [kw for kw in keywords if kw in body]
-    score += len(found_keywords)
-    if found_keywords:
-        reasons.append(f"Palabras sospechosas: {', '.join(found_keywords)}")
+    
+    if any(k in body.lower() for k in keywords):
+        score += 1
+        reasons.append("🔑 Palabras clave sospechosas en el contenido.")
+
     # 5.1 Frases de alarma comunes
     alarming_phrases = [
         "your account will be closed", "unauthorized access", "we detected unusual activity",
@@ -153,15 +163,18 @@ def is_phishing(body, sender, subject, email_raw=None, spf=None, dkim=None, dmar
     # 6. Evaluación de adjuntos analizados (integración con YARA/VirusTotal)
     flagged_attachments = []
     if attachments:
-        for result in attachments:
-            if result.startswith("🚨"):
-                # Extraer nombre de archivo si es posible
-                parts = result.split(": ", 1)
-                filename = parts[1] if len(parts) > 1 else result
-                flagged_attachments.append(filename)
+        for att in attachments:
+            if isinstance(att, str):  # si es string, extraer el nombre
+                filename = att.split(":")[-1].strip()
+            elif isinstance(att, dict) and "filename" in att:
+                filename = att["filename"]
+            else:
+                continue
+
+            if any(filename.lower().endswith(ext) for ext in DANGEROUS_EXTENSIONS):
                 score += 3
-                reasons.append(f"Adjunto malicioso detectado: {filename}")
-    
+                reasons.append(f"Adjunto con extensión peligrosa: {filename}")
+
     # Verificación de autenticación SPF, DKIM, DMARC
     if spf and "no" in spf.lower():
         score += 1
@@ -194,7 +207,7 @@ def is_phishing(body, sender, subject, email_raw=None, spf=None, dkim=None, dmar
                 break
         if not serious_indicators:
             classification = "Seguro ✅ (Bajo riesgo)"
-    return classification, reasons
+    return classification, reasons, score
 
 def check_spf(sender):
     """Verifica el registro SPF del dominio del remitente."""

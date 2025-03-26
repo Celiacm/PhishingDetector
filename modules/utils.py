@@ -2,20 +2,25 @@
 import requests
 import os
 import imaplib
-
 import modules.email_analysis as email_analysis
 
-def send_telegram_alert(data, status):
+
+
+
+def send_telegram_alert(email_data, riesgo):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
-        return
-    mensaje = f"🚨 ALERTA DE PHISHING 🚨\nRemitente: {data['from']}\nAsunto: {data['subject']}\nEstado: {status}"
+        return  # Evita fallo si no está configurado
+
+    msg = f"🚨 Detección de {riesgo}\nRemitente: {email_data['from']}\nAsunto: {email_data['subject']}"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    data = {"chat_id": chat_id, "text": msg}
     try:
-        requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
-                      data={"chat_id": chat_id, "text": mensaje})
+        requests.post(url, data=data)
     except Exception as e:
-        print("❌ Error enviando alerta Telegram:", e)
+        print(f"Error enviando alerta: {e}")
+
 
 def get_emails_without_session(limit=10):
     """

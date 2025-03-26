@@ -1,5 +1,5 @@
 import os
-import csv
+import csv, json
 import io
 import imaplib
 import logging
@@ -7,9 +7,11 @@ from flask import Flask, redirect, url_for, session, request, render_template, j
 from requests_oauthlib import OAuth2Session
 from fpdf import FPDF
 from datetime import datetime
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
 from dotenv import load_dotenv
+from email import policy
+from email.parser import BytesParser
+
+from flask import render_template_string
 from modules.scheduler import run as start_scheduler
 from modules.error_handler import init_error_handlers
 from modules.db import get_email_by_id
@@ -207,9 +209,10 @@ def get_emails():
                         spf_status = email_analysis.check_spf(sender)
                         dkim_status = email_analysis.check_dkim(msg_bytes)
                         dmarc_status = email_analysis.check_dmarc(sender)
-                        phishing_status, reasons = email_analysis.is_phishing(
+                        phishing_status, reasons, score = email_analysis.is_phishing(
                             body, sender, subject, email_raw=msg_bytes, spf=spf_status, dkim=dkim_status, dmarc=dmarc_status
                         )
+
                     except Exception as e:
                         logger.error(f"⚠️ Error durante el análisis del correo ID {e_id}: {e}")
                         continue
@@ -226,7 +229,8 @@ def get_emails():
                         "dmarc_result": dmarc_status,
                         "attachments": attachments_analysis,
                         "message_id": message_id,
-                        "reasons": reasons  # ✅ Motivos añadidos
+                        "reasons": reasons,  # ✅ Motivos añadidos
+                        "score": score
                     }
 
 
@@ -240,6 +244,21 @@ def get_emails():
     return emails
 
 
+
+
+def analizar_correo(body, sender, subject, email_raw=None):
+    spf_status = email_analysis.check_spf(sender)
+    dkim_status = email_analysis.check_dkim(email_raw) if email_raw else "❌ No se puede verificar DKIM"
+    dmarc_status = email_analysis.check_dmarc(sender)
+    phishing_status, reasons, score = email_analysis.is_phishing(
+        body, sender, subject,
+        email_raw=email_raw,
+        spf=spf_status,
+        dkim=dkim_status,
+        dmarc=dmarc_status
+    )
+    return phishing_status, reasons, score, spf_status, dkim_status, dmarc_status
+
 # Rutas para análisis manual y visualización de datos
 @app.route("/analyze_email", methods=["POST"])
 def analyze_email():
@@ -251,23 +270,11 @@ def analyze_email():
     email_body = request.form.get("email_content")
     email_sender = request.form.get("email_sender")
     email_subject = request.form.get("email_subject")
-    modo_prueba = request.form.get("modo_prueba") == "true"
-    tipo_real = request.form.get("tipo_real")  # "phishing" o "legit" (legítimo)
     if not email_body or not email_sender or not email_subject:
         return "⚠️ Todos los campos son obligatorios.", 400
     # Analizar el correo para determinar si es phishing
-    phishing_status = email_analysis.is_phishing(email_body, email_sender, email_subject)
-    # Verificar autenticación de remitente (SPF, DKIM, DMARC)
-    spf_status = email_analysis.check_spf(email_sender)
-    dkim_status = "❌ No se puede verificar DKIM"  # No se dispone del correo original para DKIM
-    dmarc_status = email_analysis.check_dmarc(email_sender)
-    # Si está en modo prueba, guardar resultado en la tabla de resultados de test
-    if modo_prueba and tipo_real:
-        correcto = False
-        if (tipo_real == "phishing" and phishing_status.startswith("Phishing")) or \
-           (tipo_real == "legit" and phishing_status.startswith("Seguro")):
-            correcto = True
-        db.save_test_result(correcto, tipo_real, phishing_status)
+    phishing_status, reasons, score, spf_status, dkim_status, dmarc_status = analizar_correo(...)
+   
     # Guardar el correo analizado en base de datos y refrescar la lista en pantalla
     db.save_email_to_db({
         "subject": email_subject,
@@ -281,24 +288,71 @@ def analyze_email():
     emails = get_emails()
     return render_template("index.html", emails=emails, phishing_result=phishing_status)
 
-@app.route("/historial")
-def historial():
-    correos_raw = db.get_email_history()
-    correos = []
-    for row in correos_raw:
-        correos.append({
-            "id": row["id"],
-            "subject": row["subject"],
-            "sender": row["sender"],
-            "estado": row["estado"],
-            "spf": row["spf"],
-            "dkim": row["dkim"],
-            "dmarc": row["dmarc"],
-            "adjuntos": row["adjuntos"],
-            "reasons": row["reasons"],
-            "fecha": row["fecha"]
-        })
-    return render_template("historial.html", correos=correos)
+
+
+
+@app.route("/analyze_email_eml", methods=["POST"])
+def analyze_email_eml():
+    eml_file = request.files.get("eml_file")
+    if not eml_file:
+        return "⚠️ Archivo .eml no proporcionado", 400
+
+    # Leer contenido y convertirlo a objeto Email
+    msg = BytesParser(policy=policy.default).parse(eml_file.stream)
+    subject = msg.get("subject", "(Sin asunto)")
+    sender = msg.get("from", "Desconocido")
+
+    try:
+        # Extraer texto del cuerpo
+        if msg.is_multipart():
+            body = ""
+            for part in msg.walk():
+                if part.get_content_type() == "text/plain":
+                    body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                    break
+        else:
+            body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+    except Exception as e:
+        body = ""
+
+    # Adjuntos
+    attachments = []
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_maintype() == "multipart" or part.get_content_disposition() is None:
+                continue
+            result = email_analysis.analyze_attachment(part)
+            attachments.append(result)
+
+    # Autenticación
+    eml_file.stream.seek(0)  # Volver al principio para raw
+    raw_email = eml_file.stream.read()
+    spf_status = email_analysis.check_spf(sender)
+    dkim_status = email_analysis.check_dkim(raw_email)
+    dmarc_status = email_analysis.check_dmarc(sender)
+
+    # Análisis phishing
+    classification, reasons, score = email_analysis.is_phishing(
+        body, sender, subject, spf=spf_status, dkim=dkim_status, dmarc=dmarc_status, attachments=attachments
+    )
+
+    # Preparar objeto para mostrar en detalles_correo.html
+    email_result = {
+        "subject": subject,
+        "from": sender,
+        "is_phishing": classification,
+        "spf_result": spf_status,
+        "dkim_result": dkim_status,
+        "dmarc_result": dmarc_status,
+        "attachments": attachments,
+        "reasons": reasons
+    }
+
+    return jsonify(email_result)
+
+
+
+
 
 
 @app.route('/detalles_correo/<int:correo_id>')
@@ -315,7 +369,7 @@ def detalles_correo(correo_id):
         "spf_result": row["spf"],
         "dkim_result": row["dkim"],
         "dmarc_result": row["dmarc"],
-        "attachments": eval(row["adjuntos"]) if row["adjuntos"] else [],
+        "attachments": json.loads(row["adjuntos"]) if row["adjuntos"] else [],
         "reasons": row["reasons"].split("; ") if row["reasons"] else []
     }
 
@@ -348,9 +402,6 @@ def export_pdf():
     correos = db.get_all_emails()
     if not correos:
         return "No hay correos para exportar.", 400
-
-    from fpdf import FPDF
-    import io
 
     pdf = FPDF()
     pdf.add_page()
@@ -439,6 +490,28 @@ def reportes():
         "trends": {"dates": trend_dates, "counts": trend_counts},
         "timeline": timeline_data
     })
+    
+    
+@app.route("/historial")
+def historial():
+    correos_raw = db.get_email_history()
+    correos = []
+    for row in correos_raw:
+        correos.append({
+            "id": row["id"],
+            "subject": row["subject"],
+            "sender": row["sender"],
+            "estado": row["estado"],
+            "spf": row["spf"],
+            "dkim": row["dkim"],
+            "dmarc": row["dmarc"],
+            "adjuntos": row["adjuntos"],
+            "reasons": row["reasons"],
+            "fecha": row["fecha"],
+            "score": row["score"]
+        })
+    return render_template("historial.html", correos=correos)
+
 
 @app.route("/metricas")
 def metricas():

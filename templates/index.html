@@ -115,6 +115,8 @@
                 <span class="text-muted">Sin analizar</span>
               {% endif %}
             </p>
+            <p><strong>📊 Puntuación de riesgo:</strong> {{ email.score }}/15</p>
+
             
             <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#modalCorreo{{ email.id }}">
               Ver detalles
@@ -143,12 +145,15 @@
                   <span class="text-success fw-bold">✅ {{ email.is_phishing }}</span>
                   {% endif %}
                 </p>
+                <p><strong>📊 Puntuación de riesgo:</strong> {{ email.score }}/15</p>
+
 
                 <div class="border rounded p-3 mb-3 bg-light">
                   <h6 class="fw-bold">🔵 Autenticación SPF, DKIM y DMARC</h6>
                   <p><strong>SPF:</strong> {{ email.spf }}</p>
                   <p><strong>DKIM:</strong> {{ email.dkim }}</p>
                   <p><strong>DMARC:</strong> {{ email.dmarc }}</p>
+                  
                   {% if email.spf.startswith("❌") and email.dkim.startswith("❌") and email.dmarc.startswith("❌") %}
                   <div class="alert alert-warning mt-2">
                     ⚠️ Este correo no tiene mecanismos de autenticación válidos.
@@ -204,35 +209,32 @@
 
     <section id="analizador" class="section">
       <h2 class="text-center mb-4">🔍 Analizar Correo Manualmente</h2>
-      <form method="POST" action="/analyze_email">
+      <form id="emlForm" enctype="multipart/form-data">
         <div class="mb-3">
-          <label class="form-label">Contenido del Correo</label>
-          <textarea class="form-control" name="email_content" rows="4" required></textarea>
+          <label class="form-label">📎 Subir archivo .eml del correo</label>
+          <input class="form-control" type="file" name="eml_file" id="eml_file" accept=".eml" required>
         </div>
-        <div class="mb-3">
-          <label class="form-label">Remitente</label>
-          <input class="form-control" name="email_sender" required>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Asunto</label>
-          <input class="form-control" name="email_subject" required>
-        </div>
-        <div class="form-check mb-2">
-          <input class="form-check-input" type="checkbox" name="modo_prueba" value="true">
-          <label class="form-check-label">Modo Prueba</label>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Tipo real</label>
-          <select class="form-select" name="tipo_real">
-            <option value="phishing">Phishing</option>
-            <option value="legit">Legítimo</option>
-          </select>
-        </div>
-        <button type="submit" class="btn btn-primary">Analizar</button>
+        <button type="submit" class="btn btn-primary">🔍 Analizar correo</button>
       </form>
-      {% if phishing_result %}
-      <div class="alert alert-info mt-4"><strong>Resultado:</strong> {{ phishing_result }}</div>
-      {% endif %}
+
+      <!-- Modal oculto -->
+      <div class="modal fade" id="resultadoModal" tabindex="-1" aria-labelledby="resultadoModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title fw-bold" id="resultadoModalLabel">📩 Detalles del Correo</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <!-- Aquí se insertará el contenido dinámicamente por JavaScript -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      
+     
+      
     </section>
 
     <section id="reportes" class="section">

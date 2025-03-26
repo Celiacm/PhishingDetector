@@ -152,3 +152,73 @@ fetch('/reportes')
 
 
 
+
+  document.getElementById("emlForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+  
+    const form = e.target;
+    const formData = new FormData(form);
+  
+    try {
+      const response = await fetch("/analyze_email_eml", {
+        method: "POST",
+        body: formData
+      });
+  
+      if (!response.ok) throw new Error("Error al analizar el correo.");
+  
+      const data = await response.json();
+  
+      // Rellenar campos del modal con formato visual bonito
+      const estadoHTML = data.is_phishing.includes("Phishing")
+        ? `<span class="text-danger fw-bold">🚨 ${data.is_phishing}</span>`
+        : data.is_phishing.includes("Sospechoso")
+          ? `<span class="text-warning fw-bold">⚠️ ${data.is_phishing}</span>`
+          : `<span class="text-success fw-bold">✅ ${data.is_phishing}</span>`;
+  
+      document.querySelector("#resultadoModal .modal-title").innerText = `📩 Detalles del Correo`;
+  
+      document.querySelector("#resultadoModal .modal-body").innerHTML = `
+        <p><strong>📌 Asunto:</strong> ${data.subject}</p>
+        <p><strong>📨 Remitente:</strong> ${data.from}</p>
+        <p><strong>🔒 Estado:</strong> ${estadoHTML}</p>
+  
+        <div class="border rounded p-3 mb-3 bg-light">
+          <h6 class="fw-bold">🔵 Autenticación SPF, DKIM y DMARC</h6>
+          <p><strong>SPF:</strong> ${data.spf_result}</p>
+          <p><strong>DKIM:</strong> ${data.dkim_result}</p>
+          <p><strong>DMARC:</strong> ${data.dmarc_result}</p>
+          ${data.spf_result.startsWith("❌") && data.dkim_result.startsWith("❌") && data.dmarc_result.startsWith("❌") 
+            ? `<div class="alert alert-warning mt-2">⚠️ Este correo no tiene mecanismos de autenticación válidos.</div>` 
+            : ""}
+        </div>
+  
+        <div class="border rounded p-3 mb-3 bg-light">
+          <h6 class="fw-bold">🔍 Motivos del Análisis</h6>
+          ${data.reasons.length > 0 
+            ? `<ul class="list-group">${data.reasons.map(m => `<li class="list-group-item">${m}</li>`).join("")}</ul>` 
+            : `<p class="text-muted">No se han identificado motivos específicos.</p>`}
+        </div>
+  
+        <div class="border rounded p-3 mb-3 bg-light">
+          <h6 class="fw-bold">📎 Archivos Adjuntos</h6>
+          ${data.attachments.length > 0 
+            ? `<ul class="list-group">${data.attachments.map(a => {
+                if (a.includes("🚨")) return `<li class="list-group-item"><span class="text-danger">Phishing 🚨 ${a}</span></li>`;
+                if (a.includes("⚠️")) return `<li class="list-group-item"><span class="text-warning">Sospechoso ⚠️ ${a}</span></li>`;
+                return `<li class="list-group-item"><span class="text-success">Seguro ✅ ${a}</span></li>`;
+              }).join("")}</ul>` 
+            : `<p class="text-muted">No hay archivos adjuntos en este correo.</p>`}
+        </div>
+      `;
+  
+      // Mostrar el modal bonito con Bootstrap
+      const modal = new bootstrap.Modal(document.getElementById("resultadoModal"));
+      modal.show();
+  
+    } catch (err) {
+      alert("❌ Hubo un problema al analizar el archivo.");
+      console.error(err);
+    }
+  });
+  

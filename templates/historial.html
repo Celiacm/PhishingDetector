@@ -17,6 +17,7 @@
                     <th>SPF</th>
                     <th>DKIM</th>
                     <th>DMARC</th>
+                    <th>Score</th>
                     <th>Fecha</th>
                     <th>Motivos</th>
                 </tr>
@@ -39,7 +40,9 @@
                     <td>{{ correo.spf }}</td>
                     <td>{{ correo.dkim }}</td>
                     <td>{{ correo.dmarc }}</td>
+                    <td>{{ correo.score }}</td>
                     <td>{{ correo.fecha }}</td>
+                    
                     <td>
                         {% if correo.reasons is string %}
                             <small>{{ correo.reasons[:100] }}...</small>
