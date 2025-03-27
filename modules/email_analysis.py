@@ -1,4 +1,3 @@
-# email_analysis.py
 import dns.resolver
 import yara
 import os
@@ -6,59 +5,90 @@ import requests
 import re
 from email.utils import parseaddr
 from urllib.parse import urlparse
+import hashlib
 
 # Carga reglas YARA (compila desde archivo si existe)
 yara_rules = yara.compile(filepath="modules/yara_rules.yar") if os.path.exists("modules/yara_rules.yar") else None
+
 # Nuevas listas para detección
 SHORT_URLS = ["bit.ly", "tinyurl.com", "t.co", "ow.ly", "cutt.ly", "is.gd", "tiny.cc"]
 SUSPECT_DOMAINS = ["apple.verify.com", "paypal-login.net", "google-alerts.info"]
 DANGEROUS_EXTENSIONS = [".exe", ".bat", ".vbs", ".scr"]
 
 
+def analyze_attachment(part):
+    """Analiza un archivo adjunto utilizando reglas YARA y VirusTotal."""
+    filename = part.get_filename()
+    payload = part.get_payload(decode=True)
+
+    if yara_rules:
+        try:
+            matches = yara_rules.match(data=payload)
+            if matches:
+                return {
+                    "filename": filename,
+                    "status": "suspicious",
+                    "reason": f"Detectado como malicioso por regla YARA: {matches[0].rule}"
+                }
+        except Exception:
+            pass
+
+    api_key = os.getenv("VIRUSTOTAL_API_KEY")
+    if api_key:
+        try:
+            sha256_hash = hashlib.sha256(payload).hexdigest()
+            vt_url = f"https://www.virustotal.com/api/v3/files/{sha256_hash}"
+            headers = {"x-apikey": api_key}
+            response = requests.get(vt_url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
+                if stats.get("malicious", 0) > 0 or stats.get("suspicious", 0) > 0:
+                    return {
+                        "filename": filename,
+                        "status": "suspicious",
+                        "reason": "Detectado como malicioso por VirusTotal"
+                    }
+        except Exception:
+            pass
+
+    return {
+        "filename": filename,
+        "status": "clean",
+        "reason": "Adjunto limpio"
+    }
+
+
 def is_phishing(body, sender, subject, email_raw=None, spf=None, dkim=None, dmarc=None, attachments=None):
     score = 0
     reasons = []
-    # Normalizar a minúsculas para análisis textual
     body = body.lower() if body else ""
     sender = sender.lower() if sender else ""
-    
-    # Separar nombre mostrado y dirección de correo del remitente
+
     display_name, sender_addr = parseaddr(sender)
     display_name = display_name.lower() if display_name else ""
     sender_addr = sender_addr.lower() if sender_addr else ""
-    sender_domain = sender_addr.split("@")[1] if "@" in sender_addr else ""
-    
-    # 1. Evaluación por reglas YARA en el correo completo
+    sender_domain = sender_addr.split("@")[-1] if "@" in sender_addr else ""
+
     if yara_rules and email_raw:
         try:
             matches = yara_rules.match(data=email_raw)
         except Exception:
             matches = []
         for m in matches:
-            # Usar la descripción de la regla YARA como justificación si existe
             description = m.meta.get('description') if hasattr(m, 'meta') else None
-            if description:
-                reasons.append(description)
-            else:
-                reasons.append(f"Regla YARA detectada: {m.rule}")
-            # Asignar puntuación según la gravedad de la regla
-            rule_name = m.rule
-            if rule_name in ["SuspiciousExecutable", "Office_Macro_Suspicious"]:
+            reasons.append(description or f"Regla YARA detectada: {m.rule}")
+            if m.rule in ["SuspiciousExecutable", "Office_Macro_Suspicious"]:
                 score += 3
-            elif rule_name in ["Phishing_HTML_Form", "Suspicious_HTML_Script", "HTML_AutoRedirect", "Suspicious_JS_Obfuscation"]:
+            elif m.rule in ["Phishing_HTML_Form", "Suspicious_HTML_Script", "HTML_AutoRedirect", "Suspicious_JS_Obfuscation"]:
                 score += 2
             else:
                 score += 1
-    
-    # 2. Validación de nombre mostrado y dominio del remitente
-    # 2.1 Nombre mostrado contiene otra dirección de correo (intento de engaño)
-    if display_name:
-        # Si el nombre mostrado aparenta ser una dirección de correo diferente al remitente real
-        if "@" in display_name and display_name != sender_addr:
-            score += 2
-            reasons.append("Nombre del remitente contiene dirección engañosa")
-    # 2.2 Suplantación de marca conocida en el remitente
-    # Nota: Usar un dominio gratuito (ej. Gmail) no se marca como sospechoso por sí solo
+
+    if display_name and "@" in display_name and display_name != sender_addr:
+        score += 2
+        reasons.append("Nombre del remitente contiene dirección engañosa")
+
     trusted_brands = {
         "amazon": "amazon.com",
         "paypal": "paypal.com",
@@ -68,218 +98,128 @@ def is_phishing(body, sender, subject, email_raw=None, spf=None, dkim=None, dmar
         "netflix": "netflix.com",
         "facebook": "facebook.com"
     }
-    for brand, official_domain in trusted_brands.items():
+    for brand, domain in trusted_brands.items():
         if brand in display_name or brand in sender_addr:
-            if official_domain not in sender_domain:
+            if domain not in sender_domain:
                 score += 2
                 reasons.append(f"Posible suplantación de marca: {brand}")
-    
-    # 3. Detección de dominios bloqueados y TLDs sospechosos
+
     if sender_domain:
-        # 3.1 Dominio remitente en lista negra
-        blacklisted_domains = ["scam.tk", "mail.ru", "phishingsite.com"]
-        for bad in blacklisted_domains:
-            # Comparar dominio exacto o como subdominio
-            if sender_domain == bad or sender_domain.endswith("." + bad):
-                score += 3
-                reasons.append(f"Dominio remitente bloqueado: {sender_domain}")
-                break
-        # 3.2 TLD sospechoso (dominios con terminaciones raras)
-        suspicious_tlds = {"xyz", "tk", "gq", "ga", "cf"}
-        domain_tld = sender_domain.split(".")[-1] if sender_domain else ""
-        if domain_tld in suspicious_tlds:
+        blacklisted = ["scam.tk", "mail.ru", "phishingsite.com"]
+        if any(sender_domain == b or sender_domain.endswith("." + b) for b in blacklisted):
+            score += 3
+            reasons.append(f"Dominio remitente bloqueado: {sender_domain}")
+
+        tld = sender_domain.split(".")[-1]
+        if tld in {"xyz", "tk", "gq", "ga", "cf"}:
             score += 1
-            reasons.append(f"TLD sospechoso: .{domain_tld}")
-        # 3.3 Caracteres Unicode o Punycode en dominio (posible engaño visual)
+            reasons.append(f"TLD sospechoso: .{tld}")
+
         if "xn--" in sender_domain:
             score += 2
             reasons.append("Dominio con codificación punycode (posible engaño visual)")
-    
-    # 4. Análisis de enlaces en el cuerpo del correo
+
     urls = re.findall(r'https?://[^\s<">]+', body)
     if urls:
         score += 1
         reasons.append("Contiene enlaces externos")
-        # Detectar enlaces acortados y con redirecciones
-        shortener_domains = ["bit.ly", "t.co", "tinyurl", "tiny.cc", "goo.gl", "ow.ly", "buff.ly", "cutt.ly", "is.gd"]
+        shorteners = SHORT_URLS
         for url in urls:
-            # 4.1 Enlace acortado (servicios de redirección conocidos)
-            if any(shortener in url for shortener in shortener_domains):
+            if any(s in url for s in shorteners):
                 score += 2
                 reasons.append(f"Enlace acortado: {url}")
             domain = urlparse(url).netloc.lower()
-            if any(suspect in domain for suspect in SUSPECT_DOMAINS):
+            if any(sus in domain for sus in SUSPECT_DOMAINS):
                 score += 3
                 reasons.append(f"Dominio sospechoso detectado: {domain}")
-            # 4.2 Parámetro de redirección en la URL
             if "redirect=" in url or "redirect/" in url:
                 score += 1
                 reasons.append(f"Enlace con parámetro de redirección: {url}")
-    # 4.3 Comparar texto visible y destino de enlaces para detectar engaños
+
     anchor_pattern = re.compile(r'<a[^>]+href=["\']([^"\']+)["\']>([^<]+)</a>', flags=re.IGNORECASE)
     for match in anchor_pattern.finditer(body):
-        href = match.group(1).strip()
-        link_text = match.group(2).strip().lower()
-        # Si el texto visible parece una URL o dominio
-        if re.search(r'(https?://|www\.|\.(com|net|org|io|gov|edu|co|info|me|ru|cn|de|uk|jp|es|fr|xyz|tk|gq))', link_text):
-            # Extraer dominio del href y del texto visible
+        href, link_text = match.group(1).strip(), match.group(2).strip().lower()
+        if re.search(r'(https?://|www\\.|\\.(com|net|org|io|gov|edu|co|info|me|ru|cn|de|uk|jp|es|fr|xyz|tk|gq))', link_text):
             href_domain = urlparse(href).netloc.lower()
-            text_domain = ""
-            if link_text.startswith("http://") or link_text.startswith("https://"):
-                text_domain = urlparse(link_text).netloc.lower()
-            elif link_text.startswith("www."):
-                text_domain = link_text[4:].split("/")[0].lower()
-            else:
-                # Si el texto es un dominio sin protocolo (ej: "example.com")
-                text_domain = link_text.split("/")[0].lower()
-            # Remover "www." inicial para comparación
-            href_domain_cmp = href_domain[4:] if href_domain.startswith("www.") else href_domain
-            text_domain_cmp = text_domain[4:] if text_domain.startswith("www.") else text_domain
-            # Comparar dominios del texto vs enlace real
-            if text_domain_cmp and href_domain_cmp and text_domain_cmp != href_domain_cmp:
+            text_domain = urlparse(link_text).netloc.lower() if link_text.startswith("http") else link_text.split("/")[0].lower()
+            if text_domain and href_domain and href_domain.replace("www.", "") != text_domain.replace("www.", ""):
                 score += 2
                 reasons.append(f"Enlace engañoso: texto muestra '{text_domain}' pero dirige a '{href_domain}'")
-    
-    # 5. Análisis de palabras clave sospechosas
-    keywords = [
-        "verify", "password", "urgent", "click here", "bank", "confirm", "account", "login", "reset",
-        "verifica", "contraseña", "urgente", "actualiza tu cuenta", "actualizar", "clave", "urgente", "verifica tu cuenta", "actualiza tu información", "haz clic aquí", "contraseña", "confirmar"
-    ]
-    
-    if any(k in body.lower() for k in keywords):
+
+    keywords = ["verify", "password", "urgent", "click here", "bank", "confirm", "account", "login", "reset",
+                "verifica", "contraseña", "urgente", "actualiza tu cuenta", "actualizar", "clave", "verifica tu cuenta"]
+    if any(k in body for k in keywords):
         score += 1
         reasons.append("🔑 Palabras clave sospechosas en el contenido.")
 
-    # 5.1 Frases de alarma comunes
-    alarming_phrases = [
-        "your account will be closed", "unauthorized access", "we detected unusual activity",
-        "acceso no autorizado", "su cuenta será suspendida", "hemos detectado actividad inusual"
-    ]
-    found_phrases = [phrase for phrase in alarming_phrases if phrase in body]
-    score += len(found_phrases)
-    if found_phrases:
-        reasons.append(f"Frases alarmantes: {', '.join(found_phrases)}")
-    
-    # 6. Evaluación de adjuntos analizados (integración con YARA/VirusTotal)
-    flagged_attachments = []
-    if attachments:
-        for att in attachments:
-            if isinstance(att, str):  # si es string, extraer el nombre
-                filename = att.split(":")[-1].strip()
-            elif isinstance(att, dict) and "filename" in att:
-                filename = att["filename"]
-            else:
-                continue
+    alarming = ["your account will be closed", "unauthorized access", "we detected unusual activity",
+                "acceso no autorizado", "su cuenta será suspendida", "hemos detectado actividad inusual"]
+    found = [p for p in alarming if p in body]
+    score += len(found)
+    if found:
+        reasons.append(f"Frases alarmantes: {', '.join(found)}")
 
-            if any(filename.lower().endswith(ext) for ext in DANGEROUS_EXTENSIONS):
-                score += 3
-                reasons.append(f"Adjunto con extensión peligrosa: {filename}")
+    flagged_attachments = [att for att in attachments if isinstance(att, dict) and att.get("status") == "suspicious"]
+    if flagged_attachments:
+        score += 3
+        for att in flagged_attachments:
+            reasons.append(f"Adjunto sospechoso: {att['filename']} ({att['reason']})")
 
-    # Verificación de autenticación SPF, DKIM, DMARC
-    if spf and "no" in spf.lower():
+    if spf is False:
         score += 1
         reasons.append("SPF inválido")
-    if dkim and "no" in dkim.lower():
+    if dkim is False:
         score += 1
         reasons.append("DKIM inválido")
-    if dmarc and "no" in dmarc.lower():
+    if dmarc is False:
         score += 1
         reasons.append("DMARC inválido")
-    
-    # 7. Clasificación final del correo
+
+
     classification = "Seguro ✅ (Bajo riesgo)"
     if score >= 7:
         classification = "Phishing 🚨 (Alto riesgo)"
     elif score >= 4:
         classification = "Sospechoso ⚠️ (Riesgo moderado)"
-    # Elevar a alto riesgo si hay adjuntos maliciosos
     if flagged_attachments:
         classification = "Phishing 🚨 (Alto riesgo)"
-    # Evitar falso positivo: si solo hay indicios leves (contenido) y autenticación correcta
+
     if classification != "Seguro ✅ (Bajo riesgo)" and not flagged_attachments:
-        serious_indicators = False
-        for reason in reasons:
-            r = reason.lower()
-            if ("suplantación de marca" in r or "dirección engañosa" in r or "dominio remitente bloqueado" in r or
-                "tld sospechoso" in r or "punycode" in r or "enlace acortado" in r or "enlace con parámetro" in r or
-                "enlace engañoso" in r or "adjunto malicioso" in r or "spf inválido" in r or "dkim inválido" in r or "dmarc inválido" in r):
-                serious_indicators = True
-                break
-        if not serious_indicators:
+        serious = any("suplantación" in r.lower() or "engañosa" in r.lower() or "bloqueado" in r.lower() or
+                      "tld sospechoso" in r.lower() or "punycode" in r.lower() or "adjunto" in r.lower()
+                      for r in reasons)
+        if not serious:
             classification = "Seguro ✅ (Bajo riesgo)"
+
     return classification, reasons, score
 
+
+
 def check_spf(sender):
-    """Verifica el registro SPF del dominio del remitente."""
     try:
-        domain = sender.split("@")[1]
+        domain = sender.split("@")[-1]
         answers = dns.resolver.resolve(domain, "TXT")
         for rdata in answers:
-            # Buscar cadena que empiece con 'v=spf1'
-            for txt in rdata.strings:
-                txt_str = txt.decode('utf-8') if isinstance(txt, bytes) else txt
-                if txt_str.startswith("v=spf1"):
-                    return "SPF válido"
-        return "SPF no encontrado"
+            if "v=spf1" in str(rdata):
+                return True
+        return False
     except Exception:
-        return "❌ Error en consulta SPF"
+        return False
 
 def check_dkim(raw_email):
-    """Simula la verificación DKIM (no implementada completamente)."""
     try:
-        # Implementación real de DKIM no disponible en este contexto
-        return "DKIM sin verificar (simulado)"
+        # Placeholder mientras no uses dkimpy u otro sistema
+        return True
     except Exception:
-        return "❌ Error en consulta DKIM"
+        return False
 
 def check_dmarc(sender):
-    """Verifica el registro DMARC del dominio del remitente."""
     try:
-        domain = sender.split("@")[1]
-        dmarc_domain = f"_dmarc.{domain}"
-        dns.resolver.resolve(dmarc_domain, "TXT")
-        return "DMARC válido"
+        domain = sender.split("@")[-1]
+        answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT")
+        for rdata in answers:
+            if "v=DMARC1" in str(rdata):
+                return True
+        return False
     except Exception:
-        return "❌ Error en consulta DMARC"
-
-def analyze_attachment(part):
-    """Analiza un archivo adjunto utilizando reglas YARA y VirusTotal."""
-    filename = part.get_filename()
-    payload = part.get_payload(decode=True)
-    # Analizar adjunto con reglas YARA
-    if yara_rules:
-        try:
-            matches = yara_rules.match(data=payload)
-        except Exception:
-            matches = []
-        if matches:
-            return f"🚨 Sospechoso: {filename}"
-    # Integración con VirusTotal (si se dispone de API key)
-    api_key = os.getenv("VIRUSTOTAL_API_KEY")
-    if api_key:
-        try:
-            import hashlib
-            sha256_hash = hashlib.sha256(payload).hexdigest()
-            vt_url = f"https://www.virustotal.com/api/v3/files/{sha256_hash}"
-            headers = {"x-apikey": api_key}
-            vt_response = requests.get(vt_url, headers=headers)
-            if vt_response.status_code == 200:
-                data = vt_response.json()
-                stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
-                malicious = stats.get("malicious", 0)
-                suspicious = stats.get("suspicious", 0)
-                if malicious > 0 or suspicious > 0:
-                    return f"🚨 Sospechoso: {filename}"
-            # Si no hay datos previos, subir el archivo para análisis
-            upload_response = requests.post(
-                "https://www.virustotal.com/api/v3/files",
-                headers=headers,
-                files={"file": (filename, payload)}
-            )
-            if upload_response.status_code in (200, 201, 202):
-                return f"⚠️ Analizado en VirusTotal: {filename}"
-        except Exception:
-            # En caso de error en la consulta a VirusTotal, continuar sin marcar
-            pass
-    # Si no se detectó nada sospechoso en el adjunto
-    return f"✅ Limpio: {filename}"
+        return False

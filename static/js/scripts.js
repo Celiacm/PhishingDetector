@@ -221,4 +221,25 @@ fetch('/reportes')
       console.error(err);
     }
   });
+
+  function showSection(sectionId) {
+    // Oculta todas las secciones
+    const sections = document.querySelectorAll(".section");
+    sections.forEach((section) => section.classList.remove("active"));
+  
+    // Muestra solo la sección seleccionada
+    const target = document.getElementById(sectionId);
+    if (target) {
+      target.classList.add("active");
+      target.style.display = "block";
+    }
+  
+    // Oculta las demás
+    sections.forEach((section) => {
+      if (section.id !== sectionId) {
+        section.style.display = "none";
+      }
+    });
+  }
+  
   
