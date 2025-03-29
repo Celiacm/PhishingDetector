@@ -2,10 +2,16 @@ import dns.resolver
 import yara
 import os
 import requests
-import re
+import re, time
 from email.utils import parseaddr
 from urllib.parse import urlparse
 import hashlib
+import email
+import json
+import os, time
+import tempfile
+from email import policy
+from email.parser import BytesParser
 
 # Carga reglas YARA (compila desde archivo si existe)
 yara_rules = yara.compile(filepath="modules/yara_rules.yar") if os.path.exists("modules/yara_rules.yar") else None
@@ -14,7 +20,6 @@ yara_rules = yara.compile(filepath="modules/yara_rules.yar") if os.path.exists("
 SHORT_URLS = ["bit.ly", "tinyurl.com", "t.co", "ow.ly", "cutt.ly", "is.gd", "tiny.cc"]
 SUSPECT_DOMAINS = ["apple.verify.com", "paypal-login.net", "google-alerts.info"]
 DANGEROUS_EXTENSIONS = [".exe", ".bat", ".vbs", ".scr"]
-
 
 def analyze_attachment(part):
     """Analiza un archivo adjunto utilizando reglas YARA y VirusTotal."""
@@ -57,6 +62,81 @@ def analyze_attachment(part):
         "status": "clean",
         "reason": "Adjunto limpio"
     }
+    
+    
+def analyze_eml_file(eml_file):
+    start = time.time()
+    try:
+        
+        raw_bytes = eml_file.read()
+        msg = BytesParser(policy=policy.default).parsebytes(raw_bytes)
+
+        subject = msg["subject"] or "(Sin asunto)"
+        sender = msg["from"] or "(Remitente desconocido)"
+        body = ""
+        analyzed_attachments = []
+
+        if msg.is_multipart():
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                if content_type == "text/plain" and not part.get_filename():
+                    body += part.get_content()
+                elif part.get_content_disposition() == "attachment":
+                    analyzed_attachments.append(analyze_attachment(part))
+        else:
+            body = msg.get_content()
+
+        # Autenticación SPF/DKIM/DMARC
+        spf_result = "✅ Válido" if check_spf(sender) else "❌ Fallido"
+        dkim_result = "✅ Válido" if check_dkim(raw_bytes) else "❌ Fallido"
+        dmarc_result = "✅ Válido" if check_dmarc(sender) else "❌ Fallido"
+
+        # Booleanos para puntuación
+        spf_bool = spf_result.startswith("✅")
+        dkim_bool = dkim_result.startswith("✅")
+        dmarc_bool = dmarc_result.startswith("✅")
+
+        # Análisis de phishing real
+        is_phishing_result, reasons, score = is_phishing(
+            body, sender, subject,
+            email_raw=raw_bytes,
+            spf=spf_bool,
+            dkim=dkim_bool,
+            dmarc=dmarc_bool,
+            attachments=analyzed_attachments
+        )
+
+        # Convertimos adjuntos a formato texto con emojis
+        final_attachments = []
+        for att in analyzed_attachments:
+            icon = "✅" if att["status"] == "clean" else "⚠️" if att["status"] == "suspicious" else "🚨"
+            final_attachments.append(f"{icon} {att['filename']}")
+
+        end = time.time()
+
+        resultado = {
+            "subject": subject,
+            "from": sender,
+            "body": body,
+            "spf_result": spf_result,
+            "dkim_result": dkim_result,
+            "dmarc_result": dmarc_result,
+            "is_phishing": is_phishing_result,
+            "reasons": reasons,
+            "attachments": final_attachments,
+            "tiempo_analisis": round(end - start, 2)
+        }
+
+        return resultado
+
+        
+
+    except Exception as e:
+        return {"error": f"Error al analizar: {str(e)}"}
+    
+    end = time.time()
+    resultado["tiempo_analisis"] = round(end - start, 2)
+
 
 
 def is_phishing(body, sender, subject, email_raw=None, spf=None, dkim=None, dmarc=None, attachments=None):
@@ -223,3 +303,6 @@ def check_dmarc(sender):
         return False
     except Exception:
         return False
+
+
+end = time.time()

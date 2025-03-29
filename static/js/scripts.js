@@ -84,12 +84,13 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("precision").textContent = data.precision + " %";
       document.getElementById("sensibilidad").textContent = data.sensibilidad + " %";
       document.getElementById("especificidad").textContent = data.especificidad + " %";
-      document.getElementById("tiempo_analisis").textContent = "N/A";
+      document.getElementById("tiempo_analisis").textContent = data.tiempo_medio + " s";
       document.getElementById("porcentaje_sospechosos").textContent = data.porcentaje_sospechosos + " %";
       document.getElementById("ultimo_analisis").textContent = data.ultimo_analisis;
     })
     .catch(err => console.error("Error cargando métricas:", err));
 });
+
 
 async function cargarResumenInicio() {
   const res = await fetch("/metricas");

@@ -21,7 +21,8 @@ def init_db():
                 fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 message_id TEXT UNIQUE,
                 reasons TEXT,
-                score INTEGER DEFAULT 0
+                score INTEGER DEFAULT 0,
+                tiempo_analisis REAL
             )
         ''')
 
@@ -43,8 +44,8 @@ def save_email_to_db(data):
         cursor = conn.cursor()
         try:
             cursor.execute('''INSERT INTO correos 
-                (user_email, subject, sender, estado, spf, dkim, dmarc, adjuntos, message_id, reasons, score)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+                (user_email, subject, sender, estado, spf, dkim, dmarc, adjuntos, message_id, reasons, score, tiempo_analisis)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
                 data.get("user_email"),
                 data.get("subject"),
                 data.get("from"),
@@ -55,7 +56,8 @@ def save_email_to_db(data):
                 json.dumps(data.get("attachments", [])),
                 data.get("message_id"),
                 "; ".join(data.get("reasons", [])),
-                data.get("score", 0)
+                data.get("score", 0),
+                data.get("tiempo_analisis",0.0)
             ))
 
             conn.commit()
