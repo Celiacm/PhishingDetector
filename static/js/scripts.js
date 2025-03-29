@@ -26,6 +26,7 @@ function cargarReportes() {
           labels: ["Seguro", "Sospechoso", "Phishing"],
           datasets: [{
             data: data.phishing_stats,
+            label: "Correos por Clasificación",
             backgroundColor: ["#198754", "#ffc107", "#dc3545"]
           }]
         }
@@ -41,6 +42,21 @@ function cargarReportes() {
             label: "Adjuntos",
             backgroundColor: ["#198754", "#ffc107", "#dc3545"]
           }]
+        },
+        options: {
+          scales: {
+            x: {
+              ticks: {
+                maxRotation: 45,
+                minRotation: 45,
+                autoSkip: true,
+                maxTicksLimit: 10
+              }
+            },
+            y: {
+              beginAtZero: true
+            }
+          }
         }
       });
 
@@ -55,7 +71,47 @@ function cargarReportes() {
             borderColor: "#0d6efd",
             tension: 0.3
           }]
+        },
+        options: {
+          plugins: {
+            title: {
+              display: true,
+              text: 'Correos totales por día',
+              font: {
+                size: 16,
+                weight: 'bold'
+              },
+              padding: {
+                top: 10,
+                bottom: 10
+              }
+            }
+          },
+          
         }
+        
+      });
+
+      const ctx4 = document.getElementById("totalChart").getContext("2d");
+      new Chart(ctx4, {
+        type: "bar",
+        data: {
+          labels: data.timeline.dates,
+          datasets: [{
+            label: "Correos Totales por Día",
+            data: data.timeline.totalCounts,
+            backgroundColor: "rgba(13, 110, 253, 0.7)"
+          }]
+        },
+        options: {
+          plugins: {
+            title: {
+              display: true,
+              text: 'Correos Totales por Día',
+            }
+          }
+        }        
+        
       });
     });
 }
@@ -129,27 +185,6 @@ async function estadoSistema() {
 }
 document.addEventListener("DOMContentLoaded", estadoSistema);
 
-fetch('/reportes')
-  .then(res => res.json())
-  .then(data => {
-    const labels = data.timeline.map(e => e.fecha);
-    const counts = labels.reduce((acc, val) => {
-      acc[val] = (acc[val] || 0) + 1;
-      return acc;
-    }, {});
-    
-    new Chart(document.getElementById('timelineChart'), {
-      type: 'bar',
-      data: {
-        labels: Object.keys(counts),
-        datasets: [{
-          label: 'Detecciones de Phishing',
-          data: Object.values(counts),
-          backgroundColor: 'rgba(255, 99, 132, 0.7)'
-        }]
-      }
-    });
-  });
 
 
 
@@ -242,5 +277,25 @@ fetch('/reportes')
       }
     });
   }
+
+  function aceptarCookies() {
+    document.getElementById("cookie-banner").style.display = "none";
+    document.cookie = "cookies_aceptadas=true; max-age=" + (60 * 60 * 24 * 365); // 1 año
+  }
+  
+  function rechazarCookies() {
+    document.getElementById("cookie-banner").style.display = "none";
+  }
+  
+  function mostrarBannerCookiesSiEsNecesario() {
+    const cookies = document.cookie.split(";").map(c => c.trim());
+    const yaAceptadas = cookies.find(c => c.startsWith("cookies_aceptadas="));
+    if (!yaAceptadas) {
+      document.getElementById("cookie-banner").style.display = "block";
+    }
+  }
+  
+  document.addEventListener("DOMContentLoaded", mostrarBannerCookiesSiEsNecesario);
+  
   
   

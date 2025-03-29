@@ -10,8 +10,16 @@ from datetime import datetime
 from dotenv import load_dotenv
 from email import policy
 from email.parser import BytesParser
-from flask import request, jsonify
+from flask import request, jsonify, make_response
+
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.units import cm
 from modules.email_analysis import analyze_eml_file
+from reportlab.platypus import Paragraph
+from reportlab.lib.styles import ParagraphStyle
 
 from modules.scheduler import run as start_scheduler
 from modules.error_handler import init_error_handlers
@@ -80,6 +88,7 @@ def login(provider):
     session["provider"] = provider
     return redirect(authorization_url)
 
+
 @app.route("/callback/<provider>")
 def callback(provider):
     if provider not in OAUTH_CONFIG:
@@ -104,12 +113,19 @@ def callback(provider):
     session["oauth_token"] = token
     os.environ["OAUTH_ACCESS_TOKEN"] = token.get("access_token", "")
     os.environ["OAUTH_EMAIL"] = session["email"]
-    return redirect(url_for("index"))
+
+    # 🔸 Crear respuesta y añadir cookie personalizada
+    resp = make_response(redirect(url_for("index")))
+    resp.set_cookie("usuario", user_info.get("email"), max_age=60*60*24*7)  # 7 días
+    return resp
 
 @app.route("/logout")
 def logout():
     session.clear()
-    return redirect(url_for("index"))
+    resp = make_response(redirect(url_for("index")))
+    resp.set_cookie("usuario", "", expires=0)
+    return resp
+  
 
 def get_emails():
     provider = session.get("provider")
@@ -205,9 +221,14 @@ def index():
 
     # 📥 Carga solo los correos del usuario actual
     emails = db.get_email_history(session.get("email"))
+    usuario_cookie = request.cookies.get("usuario")
+    if usuario_cookie:
+        logger.info(f"🧠 Cookie 'usuario' detectada: {usuario_cookie}")
+
+    get_emails()
+    emails = db.get_email_history(session.get("email"))
 
     return render_template("index.html", emails=emails)
-
 
 @app.route("/reportes")
 def reportes():
@@ -235,24 +256,77 @@ def reportes():
         if isinstance(adj, dict) and adj.get("status") == "warning"
     )
 
+        # Timeline por fecha
+    timeline = {}
+    for e in emails:
+        fecha = e["fecha"].split(" ")[0]  # Solo "YYYY-MM-DD"
+        timeline.setdefault(fecha, {"phishing": 0, "total": 0})
+        timeline[fecha]["total"] += 1
+        if e["estado"].startswith("Phishing"):
+            timeline[fecha]["phishing"] += 1
+
+    timeline_sorted = sorted(timeline.items())
+    fechas = [t[0] for t in timeline_sorted]
+    total_por_dia = [t[1]["total"] for t in timeline_sorted]
+    phishing_por_dia = [t[1]["phishing"] for t in timeline_sorted]
+
+
+    # 🧠 Devolver datos extendidos
     return jsonify({
         "phishing_stats": [seguro_count, sospechoso_count, phishing_count],
-        "attachment_stats": [archivos_limpios, archivos_sospechosos, archivos_peligrosos]
+        "attachment_stats": [archivos_limpios, archivos_sospechosos, archivos_peligrosos],
+        "trends": {
+            "dates": fechas,
+            "counts": phishing_por_dia,
+            "totalCounts": total_por_dia
+        },
+        "timeline": {
+            "dates": fechas,
+            "totalCounts": total_por_dia
+        }
     })
+
 
 
 @app.route("/export_csv")
 def export_csv():
     correos = db.get_all_emails(session.get("email"))
     si = io.StringIO()
-    writer = csv.writer(si)
-    writer.writerow(["ID", "Asunto", "Remitente", "Estado", "SPF", "DKIM", "DMARC", "Fecha", "Motivos"])
+    writer = csv.writer(si, delimiter=';', quoting=csv.QUOTE_MINIMAL)
+
+    # Cabecera más descriptiva
+    writer.writerow([
+        "📄 ID", "📌 Asunto", "📨 Remitente", "🛡️ Estado", 
+        "✅ SPF", "✅ DKIM", "✅ DMARC", 
+        "📅 Fecha", "📋 Motivos de detección"
+    ])
+
     for c in correos:
-        writer.writerow([c["id"], c["subject"], c["sender"], c["estado"], c["spf"], c["dkim"], c["dmarc"], c["fecha"], c["reasons"]])
+        # Mejora visual de motivos
+        motivos = json.loads(c["reasons"]) if c["reasons"] else []
+        motivos_str = " | ".join(motivos)
+
+        writer.writerow([
+            c["id"], 
+            c["subject"], 
+            c["sender"], 
+            c["estado"], 
+            c["spf"], 
+            c["dkim"], 
+            c["dmarc"], 
+            c["fecha"], 
+            motivos_str
+        ])
+
     mem = io.BytesIO()
-    mem.write(si.getvalue().encode("utf-8"))
+    mem.write(si.getvalue().encode("utf-8-sig"))  # BOM para Excel
     mem.seek(0)
-    return send_file(mem, mimetype="text/csv", as_attachment=True, download_name="reporte_phishing.csv")
+    return send_file(
+        mem,
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name="reporte_phishing.csv"
+    )
 
 
 
@@ -301,36 +375,100 @@ def metricas():
 
 
 
-
 @app.route("/export_pdf")
 def export_pdf():
+    from reportlab.lib.enums import TA_CENTER
     correos = db.get_all_emails(session.get("email"))
-    if not correos:
-        return "No hay correos para exportar.", 400
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(0, 10, "Reporte de Correos Analizados - PhishingDetector", ln=True, align="C")
-    pdf.ln(10)
-    for c in correos:
-        pdf.set_font("Arial", size=10)
-        texto = (
-            f"ID: {c['id']}\n"
-            f"Asunto: {c['subject']}\n"
-            f"Remitente: {c['sender']}\n"
-            f"Estado: {c['estado']}\n"
-            f"SPF: {c['spf']} | DKIM: {c['dkim']} | DMARC: {c['dmarc']}\n"
-            f"Fecha: {c['fecha']}\n"
-            f"Motivos: {c['reasons']}"
-        )
-        texto = texto.encode("latin-1", "replace").decode("latin-1")
-        pdf.multi_cell(0, 8, texto, border=1)
-        pdf.ln(2)
-    pdf_bytes = pdf.output(dest='S').encode('latin-1')
-    mem = io.BytesIO(pdf_bytes)
-    mem.seek(0)
-    return send_file(mem, mimetype="application/pdf", as_attachment=True, download_name="reporte_phishing.pdf")
+    
+    phishing = sum(1 for c in correos if c["estado"].startswith("Phishing"))
+    sospechosos = sum(1 for c in correos if c["estado"].startswith("Sospechoso"))
+    seguros = len(correos) - phishing - sospechosos
 
+    adjuntos_peligrosos = sum(
+        1 for c in correos
+        for adj in json.loads(c["adjuntos"])
+        if isinstance(adj, dict) and adj.get("status") == "warning"
+    )
+
+    output = io.BytesIO()
+    doc = SimpleDocTemplate(output, pagesize=A4, rightMargin=1*cm, leftMargin=1*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
+
+    elements = []
+    styles = getSampleStyleSheet()
+    styleH = styles["Heading1"]
+    styleH.alignment = TA_CENTER
+    styleN = styles["Normal"]
+
+    # Título
+    elements.append(Paragraph("📄 Reporte de Correos Analizados - PhishingDetector", styleH))
+    elements.append(Spacer(1, 12))
+
+    # Resumen
+    resumen_data = [
+        ["📬 Total de correos", str(len(correos))],
+        ["✅ Correos seguros", str(seguros)],
+        ["⚠️ Sospechosos", str(sospechosos)],
+        ["🚨 Phishing detectado", str(phishing)],
+        ["📎 Adjuntos maliciosos", str(adjuntos_peligrosos)]
+    ]
+    resumen_table = Table(resumen_data, colWidths=[8*cm, 4*cm])
+    resumen_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.black),
+        ("FONTSIZE", (0, 0), (-1, -1), 11),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey)
+    ]))
+    elements.append(resumen_table)
+    elements.append(Spacer(1, 20))
+
+    # Tabla de correos
+    table_data = [[
+        "ID", "Asunto", "Remitente", "Estado", "SPF", "DKIM", "DMARC", "Fecha"
+    ]]
+    par_style = ParagraphStyle(name="CellStyle", fontSize=7, leading=9)
+
+    for c in correos:
+        asunto = Paragraph(c["subject"][:100], par_style)
+        remitente = Paragraph(c["sender"], par_style)
+        estado = Paragraph(c["estado"], par_style)
+
+        table_data.append([
+            str(c["id"]),
+            asunto,
+            remitente,
+            estado,
+            str(c["spf"]),
+            str(c["dkim"]),
+            str(c["dmarc"]),
+            str(c["fecha"])
+        ])
+
+    correo_table = Table(
+        table_data,
+        colWidths=[1.2*cm, 5.2*cm, 4.5*cm, 3*cm, 1.2*cm, 1.2*cm, 1.4*cm, 2.8*cm]
+    )
+    correo_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#d9d9d9")),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.black),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+    ]))
+
+    elements.append(Paragraph("📋 Detalle de Correos Analizados", styles["Heading2"]))
+    elements.append(Spacer(1, 12))
+    elements.append(correo_table)
+
+    doc.build(elements)
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name="reporte_phishing.pdf"
+    )
 
 
 
