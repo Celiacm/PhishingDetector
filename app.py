@@ -198,7 +198,7 @@ def get_emails():
                         "dmarc_result": dmarc_status,
                         "attachments": attachments_analysis,
                         "message_id": message_id,
-                        "reasons": reasons,
+                        "reasons": json.dumps(reasons) if isinstance(reasons, list) else json.dumps([str(reasons)]),
                         "score": score,
                         "tiempo_analisis": round(end - start, 2),
 
@@ -302,21 +302,37 @@ def export_csv():
     ])
 
     for c in correos:
-        # Mejora visual de motivos
-        motivos = json.loads(c["reasons"]) if c["reasons"] else []
+        try:
+            motivos = json.loads(c["reasons"]) if c.get("reasons") else []
+        except (json.JSONDecodeError, TypeError):
+            motivos = []
+
+        if not motivos:
+            motivos = ["(Motivos no disponibles)"]
+
         motivos_str = " | ".join(motivos)
 
+        estado = c.get("estado", "").lower()
+
+        if "phishing" in estado:
+            estado_color = "🚨 Phishing"
+        elif "sospechoso" in estado:
+            estado_color = "⚠️ Sospechoso"
+        else:
+            estado_color = "✅ Seguro"
+
         writer.writerow([
-            c["id"], 
-            c["subject"], 
-            c["sender"], 
-            c["estado"], 
-            c["spf"], 
-            c["dkim"], 
-            c["dmarc"], 
-            c["fecha"], 
+            c.get("id", "--"),
+            c.get("subject", "--"),
+            c.get("sender", "--"),
+            estado_color,
+            c.get("spf", "--"),
+            c.get("dkim", "--"),
+            c.get("dmarc", "--"),
+            c.get("fecha", "--"),
             motivos_str
         ])
+
 
     mem = io.BytesIO()
     mem.write(si.getvalue().encode("utf-8-sig"))  # BOM para Excel
