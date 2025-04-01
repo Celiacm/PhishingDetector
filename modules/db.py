@@ -3,6 +3,9 @@ import sqlite3
 import os
 
 DB_NAME = "phishing_detector.db"
+FEEDBACK_CORRECTO = "Correcto"
+FEEDBACK_INCORRECTO = "Incorrecto"
+
 
 def init_db():
     with sqlite3.connect(DB_NAME) as conn:
@@ -22,7 +25,8 @@ def init_db():
                 message_id TEXT UNIQUE,
                 reasons TEXT,
                 score INTEGER DEFAULT 0,
-                tiempo_analisis REAL
+                tiempo_analisis REAL, 
+                feedback_usuario TEXT
             )
         ''')
 
@@ -38,6 +42,31 @@ def init_db():
             )
         ''')
         conn.commit()
+        
+        
+def guardar_feedback(id_correo, correcto):
+    with sqlite3.connect(DB_NAME) as con:
+        cur = con.cursor()
+        cur.execute("UPDATE correos SET feedback_usuario = ? WHERE id = ?", 
+                    ("Correcto" if correcto else "Incorrecto", id_correo))
+        con.commit()
+
+
+def get_feedback_stats(user_email):
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                SUM(CASE WHEN feedback_usuario = 'Correcto' THEN 1 ELSE 0 END) AS correctos,
+                SUM(CASE WHEN feedback_usuario = 'Incorrecto' THEN 1 ELSE 0 END) AS incorrectos
+            FROM correos
+            WHERE user_email = ?
+        """, (user_email,))
+        result = cursor.fetchone()
+        return {"correctos": result[0] or 0, "incorrectos": result[1] or 0}
+
+
+
 
 def save_email_to_db(data):
     with sqlite3.connect(DB_NAME) as conn:
@@ -49,29 +78,37 @@ def save_email_to_db(data):
                 data.get("user_email"),
                 data.get("subject"),
                 data.get("from"),
-                data.get("is_phishing"),
+                data.get("estado"),
                 bool(data.get("spf_result", False)),
                 bool(data.get("dkim_result", False)),
                 bool(data.get("dmarc_result", False)),
                 json.dumps(data.get("attachments", [])),
                 data.get("message_id"),
-                "; ".join(data.get("reasons", [])),
+                json.dumps(data.get("reasons", [])),
                 data.get("score", 0),
-                data.get("tiempo_analisis",0.0)
+                data.get("tiempo_analisis", 0.0)
             ))
 
             conn.commit()
+            return cursor.lastrowid  # Devuelve el ID del correo guardado
         except sqlite3.IntegrityError:
             print(f"📌 Correo con ID {data.get('message_id')} ya existe. No se guarda.")
+            return None
 
-def get_email_history(user_email):
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM correos WHERE user_email = ? ORDER BY fecha DESC", (user_email,))
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+
+
+def get_email_history(user_email=None):
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        if user_email:
+            cursor.execute("SELECT * FROM correos WHERE user_email = ? ORDER BY fecha DESC", (user_email,))
+        else:
+            cursor.execute("SELECT * FROM correos ORDER BY fecha DESC")
+        results = cursor.fetchall()
+        return [dict(row) for row in results]
+
+
 
 def get_email_states(user_email):
     with sqlite3.connect(DB_NAME) as conn:
@@ -109,3 +146,29 @@ def get_all_emails(user_email):
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+
+def get_email_by_message_id(message_id):
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM correos WHERE message_id = ?", (message_id,))
+    email = cursor.fetchone()
+    conn.close()
+    return dict(email) if email else None
+
+
+
+def actualizar_estado_por_score():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, score FROM correos")
+    rows = cursor.fetchall()
+
+    for row in rows:
+        nuevo_estado = "Phishing" if row["score"] >= 10 else "Sospechoso" if row["score"] >= 5 else "Seguro"
+        cursor.execute("UPDATE correos SET estado = ? WHERE id = ?", (nuevo_estado, row["id"]))
+
+    conn.commit()
+    conn.close()
+

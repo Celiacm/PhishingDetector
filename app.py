@@ -25,6 +25,8 @@ from modules.scheduler import run as start_scheduler
 from modules.error_handler import init_error_handlers
 from modules.db import get_email_by_id
 
+from modules.email_analysis import is_phishing
+
 # Importar módulos locales
 import modules.db as db        # Funciones de base de datos
 import modules.email_analysis as email_analysis  # Análisis de correos y adjuntos
@@ -45,6 +47,11 @@ init_error_handlers(app)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY")
+
+
+
+
+
 
 db.init_db()
 
@@ -178,12 +185,16 @@ def get_emails():
                                 continue
                             result_attach = email_analysis.analyze_attachment(part)
                             attachments_analysis.append(result_attach)
-                    spf_status = email_analysis.check_spf(sender)
-                    dkim_status = email_analysis.check_dkim(msg_bytes)
-                    dmarc_status = email_analysis.check_dmarc(sender)
+                    
+
+                    spf_bool = email_analysis.check_spf(sender)
+                    dkim_bool = email_analysis.check_dkim(msg_bytes)
+                    dmarc_bool = email_analysis.check_dmarc(sender)
+
+
                     start = time.time()
                     phishing_status, reasons, score = email_analysis.is_phishing(
-                        body, sender, subject, email_raw=msg_bytes, spf=spf_status, dkim=dkim_status, dmarc=dmarc_status, attachments=attachments_analysis
+                        body, sender, subject, email_raw=msg_bytes, spf=spf_bool, dkim=dkim_bool, dmarc=dmarc_bool, attachments=attachments_analysis
                     )
                     end = time.time()
                     if phishing_status.startswith("Phishing"):
@@ -192,10 +203,10 @@ def get_emails():
                         "user_email": session.get("email"),
                         "subject": subject,
                         "from": sender,
-                        "is_phishing": phishing_status,
-                        "spf_result": spf_status,
-                        "dkim_result": dkim_status,
-                        "dmarc_result": dmarc_status,
+                        "estado": phishing_status,  # 👈 necesario para coherencia
+                        "spf_result": spf_bool,
+                        "dkim_result": dkim_bool,
+                        "dmarc_result": dmarc_bool,
                         "attachments": attachments_analysis,
                         "message_id": message_id,
                         "reasons": json.dumps(reasons) if isinstance(reasons, list) else json.dumps([str(reasons)]),
@@ -221,12 +232,20 @@ def index():
 
     # 📥 Carga solo los correos del usuario actual
     emails = db.get_email_history(session.get("email"))
+    for e in emails:
+        if "estado" not in e and "is_phishing" in e:
+            e["estado"] = e["is_phishing"]
     usuario_cookie = request.cookies.get("usuario")
     if usuario_cookie:
         logger.info(f"🧠 Cookie 'usuario' detectada: {usuario_cookie}")
 
-    get_emails()
+    
     emails = db.get_email_history(session.get("email"))
+    for e in emails:
+       try:
+           e["reasons_parsed"] = json.loads(e["reasons"])
+       except Exception:
+           e["reasons_parsed"] = []
 
     return render_template("index.html", emails=emails)
 
@@ -357,9 +376,38 @@ def analyze_email_eml():
         return jsonify({"error": "Archivo no válido"}), 400
 
     result = analyze_eml_file(eml_file)
-    db.save_email_to_db(result)
+
+    # Aseguramos consistencia
+    result["estado"] = result["is_phishing"]
+    result["user_email"] = session.get("email")
+    result["message_id"] = result.get("message_id", None)
+    result["tiempo_analisis"] = result.get("tiempo_analisis", 0.0)
+
+    # Guardar en la base de datos
+    correo_id = db.save_email_to_db(result)
+    result["correo_id"] = correo_id
 
     return jsonify(result)
+
+
+
+
+@app.route("/dev/sync_estados")
+def sync_estados():
+    db.actualizar_estado_por_score()
+    return "Estados actualizados."
+
+
+
+
+
+@app.route("/feedback", methods=["POST"])
+def guardar_feedback():
+    id_correo = request.form.get("correo_id")
+    correcto = request.form.get("correcto") == "true"
+    db.guardar_feedback(id_correo, correcto)
+    return "OK"
+
 
 
 @app.route("/metricas")
@@ -373,6 +421,9 @@ def metricas():
 
     tiempos = [e["tiempo_analisis"] for e in emails if e.get("tiempo_analisis") is not None]
     tiempo_medio = round(sum(tiempos) / len(tiempos), 2) if tiempos else 0
+    feedback = db.get_feedback_stats(session.get("email"))
+
+
 
     ultimo = max((e["fecha"] for e in emails), default="--")
 
@@ -386,7 +437,9 @@ def metricas():
         "ultimo_analisis": ultimo,
         "precision": 93.5,        # puedes ajustar si tienes métricas reales
         "sensibilidad": 88.2,
-        "especificidad": 95.4
+        "especificidad": 95.4,
+        "feedback_correctos": feedback["correctos"],
+        "feedback_incorrectos": feedback["incorrectos"]
     })
 
 
@@ -485,6 +538,254 @@ def export_pdf():
         as_attachment=True,
         download_name="reporte_phishing.pdf"
     )
+    
+    
+
+@app.route("/enviar_test", methods=["POST"])
+def enviar_test():
+    respuestas_correctas = {
+        "respuesta_1": "phishing",
+        "respuesta_2": "phishing",
+        "respuesta_3": "seguro"
+    }
+
+    puntuacion = 0
+    total = len(respuestas_correctas)
+
+    for clave, correcta in respuestas_correctas.items():
+        respuesta = request.form.get(clave)
+        if respuesta == correcta:
+            puntuacion += 1
+
+    mensaje = f"✅ Has acertado {puntuacion} de {total} respuestas."
+
+    if puntuacion == total:
+        mensaje += " ¡Perfecto!"
+    elif puntuacion >= 2:
+        mensaje += " ¡Buen trabajo!"
+    else:
+        mensaje += " Te recomendamos repasar conceptos."
+
+    return jsonify({"mensaje": mensaje})
+
+
+
+
+
+
+@app.route("/evaluar_enlaces", methods=["POST"])
+def evaluar_enlaces():
+    respuestas = request.form
+    total = 0
+    usuario_aciertos = 0
+    coincidencias = 0
+
+    casos = {
+        "e1": "https://apple.verify.com/login",
+        "e2": "https://www.paypal.com/security",
+        "e3": "http://login-bank.xyz/verify"
+    }
+
+    correctas = {
+        "e1": "phishing",
+        "e2": "seguro",
+        "e3": "phishing"
+    }
+    
+
+    for clave, url in casos.items():
+        user_resp = respuestas.get(clave)
+        total += 1
+
+        # Evaluar si la respuesta del usuario es correcta
+        if user_resp == correctas[clave]:
+            usuario_aciertos += 1
+
+        # Usar is_phishing para analizar el enlace
+        resultado, _, _ = is_phishing(
+            body=url,
+            sender="prueba@ejemplo.com",
+            subject="Test",
+            email_raw=None,
+            spf="✅ SPF válido",
+            dkim="✅ DKIM válido",
+            dmarc="✅ DMARC válido",
+            attachments=[]
+        )
+
+        sistema = "phishing" if "Phishing" in resultado else "seguro"
+
+        if sistema == user_resp:
+            coincidencias += 1
+
+    return jsonify({
+        "usuario": usuario_aciertos,
+        "coincidencias": coincidencias,
+        "total": total
+    })
+    
+@app.route("/evaluar_visual", methods=["POST"])
+def evaluar_visual():
+    respuestas = request.form
+    total = 0
+    usuario_aciertos = 0
+    coincidencias = 0
+
+    ejemplos = {
+        "v1": "Estimado usuario, haga clic en el siguiente enlace para confirmar su cuenta: http://login-seguro.tk",
+        "v2": "Netflix te agradece tu pago mensual. Tu factura está disponible en tu cuenta.",
+        "v3": "Su cuenta PayPal ha sido limitada. Visite http://secure.pay-pal.com para restaurarla."
+    }
+
+    correctas = {
+        "v1": "phishing",
+        "v2": "seguro",
+        "v3": "phishing"
+    }
+
+    for clave, texto in ejemplos.items():
+        user_resp = respuestas.get(clave)
+        total += 1
+
+        if user_resp == correctas[clave]:
+            usuario_aciertos += 1
+
+        resultado, _, _ = is_phishing(
+            body=texto,
+            sender="test@fake.com",
+            subject="Correo visual",
+            email_raw=None,
+            spf="✅ SPF válido",
+            dkim="✅ DKIM válido",
+            dmarc="✅ DMARC válido",
+            attachments=[]
+        )
+
+        sistema = "phishing" if "Phishing" in resultado else "seguro"
+
+        if sistema == user_resp:
+            coincidencias += 1
+
+    return jsonify({
+        "usuario": usuario_aciertos,
+        "coincidencias": coincidencias,
+        "total": total
+    })
+
+
+
+
+@app.route("/analizar_respuesta_rapida", methods=["POST"])
+def analizar_respuesta_rapida():
+    texto = request.form.get("texto", "")
+
+    resultado, _, _ = is_phishing(
+        body=texto,
+        sender="jugador@test.com",
+        subject="Juego Rápido",
+        email_raw=None,
+        spf="✅ SPF válido",
+        dkim="✅ DKIM válido",
+        dmarc="✅ DMARC válido",
+        attachments=[]
+    )
+
+    sistema = "phishing" if "Phishing" in resultado else "seguro"
+
+    return jsonify({"resultado": sistema})
+
+
+
+
+
+
+@app.route("/evaluar_versus", methods=["POST"])
+def evaluar_versus():
+    archivo = request.files.get("emlFile")
+    usuario = request.form.get("usuarioDecision")
+
+    if not archivo or not archivo.filename.endswith(".eml"):
+        return jsonify({"error": "Archivo inválido"}), 400
+
+    raw_bytes = archivo.read()
+
+    # analizar usando tu función analyze_eml_file desde email_analysis.py
+    eml_info = analyze_eml_file(io.BytesIO(raw_bytes))
+
+    subject = eml_info.get("subject", "")
+    sender = eml_info.get("from", "")
+    body = eml_info.get("body", "")
+    attachments = eml_info.get("attachments", [])
+    message_id = eml_info.get("message_id", "")
+
+    resultado, _, _ = is_phishing(
+        body=body,
+        sender=sender,
+        subject=subject,
+        email_raw=raw_bytes,
+        spf="✅ SPF válido",
+        dkim="✅ DKIM válido",
+        dmarc="✅ DMARC válido",
+        attachments=attachments
+    )
+
+    sistema = "phishing" if "Phishing" in resultado else "seguro"
+
+    return jsonify({
+        "usuario": usuario,
+        "sistema": sistema
+    })
+
+
+
+
+@app.route("/evaluar_dominios", methods=["POST"])
+def evaluar_dominios():
+    respuestas = request.form
+    total = 0
+    usuario_aciertos = 0
+    coincidencias = 0
+
+    dominios = {
+        "d1": "paypal-verification.com",
+        "d2": "apple.com",
+        "d3": "micr0soft-support.net"
+    }
+
+    correctas = {
+        "d1": "phishing",
+        "d2": "seguro",
+        "d3": "phishing"
+    }
+
+    for clave, url in dominios.items():
+        user_resp = respuestas.get(clave)
+        total += 1
+
+        if user_resp == correctas[clave]:
+            usuario_aciertos += 1
+
+        resultado, _, _ = is_phishing(
+            body=url,
+            sender="test@correo.com",
+            subject="Test dominio",
+            email_raw=None,
+            spf="✅ SPF válido",
+            dkim="✅ DKIM válido",
+            dmarc="✅ DMARC válido",
+            attachments=[]
+        )
+
+        sistema = "phishing" if "Phishing" in resultado else "seguro"
+
+        if sistema == user_resp:
+            coincidencias += 1
+
+    return jsonify({
+        "usuario": usuario_aciertos,
+        "coincidencias": coincidencias,
+        "total": total
+    })
 
 
 

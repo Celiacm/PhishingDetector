@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-bs-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -18,10 +18,12 @@
     ></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gaugeJS/dist/gauge.min.js"></script>
   </head>
   <body>
     <div class="loading-screen" id="loading">
-      <div class="spinner-border text-primary" role="status"></div>
+      <div class="spinner-border text-primary" role="
+      "></div>
       <p>Cargando sistema...</p>
     </div>
 
@@ -59,9 +61,23 @@
               >
             </li>
             <li class="nav-item">
+              <a class="nav-link" href="#" onclick="showSection('test')"
+                >🧪 Test</a
+              >
+            </li>
+
+            <li class="nav-item">
               <a class="nav-link text-danger" href="{{ url_for('logout') }}"
                 >⛔ Salir</a
               >
+            </li>
+            <li class="nav-item">
+              <button
+                class="btn btn-sm btn-light ms-3 mt-1"
+                onclick="alternarTema()"
+              >
+                🌓
+              </button>
             </li>
           </ul>
         </div>
@@ -104,20 +120,6 @@
           </div>
         </div>
 
-        <div class="mt-4">
-          <h6 class="text-center">Nivel de Riesgo Actual</h6>
-          <div class="progress">
-            <div
-              class="progress-bar bg-danger"
-              id="barraRiesgo"
-              role="progressbar"
-              style="width: 0%"
-            >
-              0%
-            </div>
-          </div>
-        </div>
-
         <div
           class="alert alert-warning text-center mt-4 shadow-sm"
           id="consejoSeguridad"
@@ -132,6 +134,24 @@
           >
             📊 Ver estadísticas completas
           </button>
+        </div>
+        <div class="row justify-content-center mt-4">
+          <div class="col-md-6 text-center">
+            <h6 class="mb-2">Nivel de Riesgo Actual</h6>
+            <canvas id="gaugeRiesgo" width="240" height="140"></canvas>
+            <div id="textoRiesgo" class="mt-2 fw-bold fs-5"></div>
+
+            <div class="progress mt-3" style="height: 20px">
+              <div
+                class="progress-bar bg-danger"
+                id="barraRiesgo"
+                role="progressbar"
+                style="width: 0%"
+              >
+                0%
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="mt-5">
@@ -158,6 +178,33 @@
       </section>
       <section id="historial" class="section" style="display: none">
         <h2 class="text-center mb-4">📂 Historial de Correos Analizados</h2>
+        <div
+          class="d-flex flex-wrap justify-content-between align-items-center mb-3"
+        >
+          <div>
+            <label for="filtroEstado" class="form-label me-2"
+              >📂 Filtrar por estado:</label
+            >
+            <select id="filtroEstado" class="form-select d-inline-block w-auto">
+              <option value="">Todos</option>
+              <option value="Phishing">🚨 Phishing</option>
+              <option value="Sospechoso">⚠️ Sospechoso</option>
+              <option value="Seguro">✅ Seguro</option>
+            </select>
+          </div>
+          <div>
+            <label for="busquedaTabla" class="form-label me-2"
+              >🔍 Buscar asunto:</label
+            >
+            <input
+              type="text"
+              id="busquedaTabla"
+              placeholder="Buscar asunto..."
+              class="form-control d-inline-block w-auto"
+            />
+          </div>
+        </div>
+
         <div class="table-responsive">
           <table class="table table-striped table-hover table-bordered">
             <thead class="table-dark">
@@ -279,19 +326,19 @@
 
                       <div class="border rounded p-3 mb-3 bg-light">
                         <h6 class="fw-bold">🔍 Motivos del Análisis</h6>
-                        {% if correo.reasons is string %}
-                        <div class="alert alert-info">{{ correo.reasons }}</div>
-                        {% elif correo.reasons %}
-                        <ul class="list-group">
-                          {% for motivo in correo.reasons %}
-                          <li class="list-group-item">{{ motivo }}</li>
-                          {% endfor %}
-                        </ul>
-                        {% else %}
-                        <p class="text-muted">
-                          No se han identificado motivos específicos.
-                        </p>
-                        {% endif %}
+                        <div class="alert alert-info">
+                          {% if correo.reasons_parsed %}
+                          <ul class="list-group list-group-flush">
+                            {% for motivo in correo.reasons_parsed %}
+                            <li class="list-group-item">{{ motivo }}</li>
+                            {% endfor %}
+                          </ul>
+                          {% else %}
+                          <p class="text-muted">
+                            No se han identificado motivos específicos.
+                          </p>
+                          {% endif %}
+                        </div>
                       </div>
 
                       <div class="border rounded p-3 mb-3 bg-light">
@@ -308,6 +355,27 @@
                         </p>
                         {% endif %}
                       </div>
+                      <input
+                        type="hidden"
+                        class="correo-id"
+                        value="{{ correo.id }}"
+                      />
+
+                      <div class="text-center mt-3">
+                        <p>¿Fue clasificado correctamente?</p>
+                        <button
+                          class="btn btn-success btn-sm me-2 feedback-btn"
+                          data-correcto="true"
+                        >
+                          ✅ Sí
+                        </button>
+                        <button
+                          class="btn btn-danger btn-sm feedback-btn"
+                          data-correcto="false"
+                        >
+                          ❌ No
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -315,12 +383,6 @@
               {% endfor %}
             </tbody>
           </table>
-        </div>
-
-        <div class="text-center mt-4">
-          <button class="btn btn-secondary" onclick="showSection('inicio')">
-            🔙 Volver a Inicio
-          </button>
         </div>
       </section>
 
@@ -509,7 +571,6 @@
           </button>
         </form>
 
-        <!-- Modal oculto -->
         <div
           class="modal fade"
           id="resultadoModal"
@@ -530,9 +591,6 @@
                   aria-label="Cerrar"
                 ></button>
               </div>
-              <div class="modal-body">
-                <!-- Aquí se insertará el contenido dinámicamente por JavaScript -->
-              </div>
             </div>
           </div>
         </div>
@@ -540,7 +598,7 @@
 
       <section id="reportes" class="section container py-4">
         <h2 class="mb-4">📊 Reportes del Sistema</h2>
-      
+
         <div class="row g-4">
           <div class="col-md-6">
             <div class="card p-3">
@@ -548,66 +606,94 @@
               <canvas id="phishingChart" height="250"></canvas>
             </div>
           </div>
-      
+
           <div class="col-md-6">
             <div class="card p-3">
               <h6 class="text-center">Estado de los Archivos Adjuntos</h6>
               <canvas id="attachmentsChart" height="250"></canvas>
             </div>
           </div>
-      
+
           <div class="col-md-6">
             <div class="card p-3">
               <h6 class="text-center">Tendencia de Phishing Detectado</h6>
               <canvas id="phishingTrendsChart" height="250"></canvas>
             </div>
           </div>
-      
+
           <div class="col-md-6">
             <div class="card p-3">
               <h6 class="text-center">Correos Analizados por Día</h6>
               <canvas id="totalChart" height="250"></canvas>
             </div>
           </div>
-        </div>      
-        <div class="row justify-content-center mt-4 text-center">
+        </div>
+        <div class="row justify-content-center text-center mt-4">
           <div class="col-md-3 col-6 mb-3">
             <div class="card p-3 metric-card">
-              <h6 class="fw-bold">Correos Analizados</h6>
+              <h6 class="fw-bold">📬 Correos Analizados</h6>
               <p class="metric-value" id="total">--</p>
             </div>
           </div>
-        
-          <div class="col-md-9">
-            <div class="card shadow-sm p-4 bg-light mb-4">
-              <h5 class="text-center mb-4">📊 Métricas del Sistema</h5>
-              <div class="row text-center justify-content-center">
-                <div class="col-md-2 col-6 mb-3">
-                  <h6 class="fw-bold">Precisión</h6>
-                  <p class="metric-value" id="precision">--</p>
-                </div>
-                <div class="col-md-2 col-6 mb-3">
-                  <h6 class="fw-bold">Sensibilidad</h6>
-                  <p class="metric-value" id="sensibilidad">--</p>
-                </div>
-                <div class="col-md-2 col-6 mb-3">
-                  <h6 class="fw-bold">Especificidad</h6>
-                  <p class="metric-value" id="especificidad">--</p>
-                </div>
-                <div class="col-md-2 col-6 mb-3">
-                  <h6 class="fw-bold">Tiempo Análisis</h6>
-                  <p class="metric-value" id="tiempo_analisis">--</p>
-                </div>
-                <div class="col-md-2 col-6 mb-3">
-                  <h6 class="fw-bold">% Sospechosos</h6>
-                  <p class="metric-value" id="porcentaje_sospechosos">--</p>
-                </div>
-              </div>
+
+          <div class="col-md-3 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">📈 Precisión</h6>
+              <p class="metric-value" id="precision">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-3 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">🎯 Sensibilidad</h6>
+              <p class="metric-value" id="sensibilidad">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-3 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">🧠 Especificidad</h6>
+              <p class="metric-value" id="especificidad">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-4 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">🕒 Tiempo Medio</h6>
+              <p class="metric-value" id="tiempo_analisis">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-4 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">⚠️ Sospechosos (%)</h6>
+              <p class="metric-value" id="porcentaje_sospechosos">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-4 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">🕵️ Último Análisis</h6>
+              <p class="metric-value" id="ultimo_analisis">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">👍 Confirmados por Usuarios</h6>
+              <p class="metric-value text-success" id="feedbackOk">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">👎 Marcados como Incorrectos</h6>
+              <p class="metric-value text-danger" id="feedbackKo">--</p>
             </div>
           </div>
         </div>
-        
-        <div class="table-responsive shadow-sm bg-white p-3 rounded">          
+
+        <div class="table-responsive shadow-sm bg-white p-3 rounded">
           <h4 class="text-center mb-3">📄 Últimos Correos Analizados</h4>
           <div class="table-responsive">
             <table class="table table-striped table-hover table-bordered">
@@ -658,6 +744,82 @@
           >
         </div>
       </section>
+      <!-- Sección completa para sustituir la actual "#test" en index.html -->
+      <section id="test" class="section" style="display: none">
+        <h2 class="text-center mb-4">🧪 Centro de Entrenamiento Anti-Phishing</h2>
+
+        <div class="row g-4 justify-content-center">
+          <!-- Tarjeta 1: Análisis Visual -->
+          <div class="col-md-4">
+            <div class="card p-3 shadow-sm h-100 text-center hover-card" onclick="abrirMiniJuego('visual')">
+              <h5 class="mb-2">👁️ Análisis Visual</h5>
+              <p>¿Puedes detectar un phishing solo viendo el diseño?</p>
+            </div>
+          </div>
+
+          <!-- Tarjeta 2: Desafío de Enlaces -->
+          <div class="col-md-4">
+            <div class="card p-3 shadow-sm h-100 text-center hover-card" onclick="abrirMiniJuego('enlaces')">
+              <h5 class="mb-2">🔗 Desafío de Enlaces</h5>
+              <p>¿Puedes distinguir entre enlaces legítimos y falsos?</p>
+            </div>
+          </div>
+
+          <!-- Tarjeta 3: Detección Rápida -->
+          <div class="col-md-4">
+            <div class="card p-3 shadow-sm h-100 text-center hover-card" onclick="abrirMiniJuego('rapido')">
+              <h5 class="mb-2">⚡ Detección Rápida</h5>
+              <p>¡Tienes solo 10 segundos por correo!</p>
+            </div>
+          </div>
+
+          <!-- Tarjeta 4: Tú vs la IA -->
+          <div class="col-md-4">
+            <div class="card p-3 shadow-sm h-100 text-center hover-card" onclick="abrirMiniJuego('versus')">
+              <h5 class="mb-2">🤖 Tú vs el Detector</h5>
+              <p>Compite con el sistema. ¡¿Detectarás lo mismo?!</p>
+            </div>
+          </div>
+
+          <!-- Tarjeta 5: Dominios Sospechosos -->
+          <div class="col-md-4">
+            <div class="card p-3 shadow-sm h-100 text-center hover-card" onclick="abrirMiniJuego('dominios')">
+              <h5 class="mb-2">🌐 Acierta la Marca</h5>
+              <p>¿Puedes reconocer un dominio fraudulento?</p>
+            </div>
+          </div>
+        </div>
+      </section>
+      <!-- Modal Resultado Test -->
+      <div
+        class="modal fade"
+        id="modalResultadoTest"
+        tabindex="-1"
+        aria-labelledby="modalResultadoTestLabel"
+        aria-hidden="true"
+      >
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="modalResultadoTestLabel">
+                🧪 Resultado del Test
+              </h5>
+              <button
+                type="button"
+                class="btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Cerrar"
+              ></button>
+            </div>
+            <div
+              class="modal-body text-center fw-bold fs-5"
+              id="contenidoModalResultadoTest"
+            >
+              <!-- Aquí se inyectará el mensaje -->
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
     <footer class="bg-dark text-white text-center py-3 mt-5">
       <div class="container">
@@ -671,13 +833,212 @@
 
     <div id="cookie-banner" class="cookie-banner">
       <p>
-        🍪 Utilizamos cookies para mejorar tu experiencia. Al aceptar, se almacenará una cookie local.
+        🍪 Utilizamos cookies para mejorar tu experiencia. Al aceptar, se
+        almacenará una cookie local.
       </p>
       <div class="d-flex justify-content-end gap-2 mt-2">
-        <button class="btn btn-success btn-sm" onclick="aceptarCookies()">Aceptar</button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="rechazarCookies()">Rechazar</button>
+        <button class="btn btn-success btn-sm" onclick="aceptarCookies()">
+          Aceptar
+        </button>
+        <button
+          class="btn btn-outline-secondary btn-sm"
+          onclick="rechazarCookies()"
+        >
+          Rechazar
+        </button>
       </div>
     </div>
+    <div id="toastFeedback" class="toast-feedback">
+      <p id="toastFeedbackMsg">Gracias por tu feedback.</p>
+    </div>
+
+    <!-- Modal: Desafío de Enlaces -->
+    <div class="modal fade" id="modalDesafioEnlaces" tabindex="-1" aria-labelledby="modalDesafioEnlacesLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="modalDesafioEnlacesLabel">🔗 Desafío de Enlaces</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <form id="formEnlaces">
+              <div class="mb-3">
+                <label>1. <code>https://apple.verify.com/login</code></label><br>
+                <select class="form-select" name="e1" required>
+                  <option value="">Selecciona una opción</option>
+                  <option value="seguro">✅ Seguro</option>
+                  <option value="phishing">🚨 Phishing</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label>2. <code>https://www.paypal.com/security</code></label><br>
+                <select class="form-select" name="e2" required>
+                  <option value="">Selecciona una opción</option>
+                  <option value="seguro">✅ Seguro</option>
+                  <option value="phishing">🚨 Phishing</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label>3. <code>http://login-bank.xyz/verify</code></label><br>
+                <select class="form-select" name="e3" required>
+                  <option value="">Selecciona una opción</option>
+                  <option value="seguro">✅ Seguro</option>
+                  <option value="phishing">🚨 Phishing</option>
+                </select>
+              </div>
+              <div class="text-center">
+                <button type="submit" class="btn btn-primary">✅ Enviar Respuestas</button>
+              </div>
+            </form>
+
+            <div id="resultadoEnlaces" class="alert alert-info fw-bold text-center mt-4" style="display: none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Modal: Análisis Visual -->
+    <div class="modal fade" id="modalJuegoVisual" tabindex="-1" aria-labelledby="modalJuegoVisualLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="modalJuegoVisualLabel">👁️ Análisis Visual</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <form id="formVisual">
+              <div class="mb-4">
+                <img src="/static/img/visual1.png" class="img-fluid rounded shadow-sm mb-2" alt="Correo 1">
+                <select name="v1" class="form-select" required>
+                  <option value="">¿Es phishing o seguro?</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="mb-4">
+                <img src="/static/img/visual2.png" class="img-fluid rounded shadow-sm mb-2" alt="Correo 2">
+                <select name="v2" class="form-select" required>
+                  <option value="">¿Es phishing o seguro?</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="mb-4">
+                <img src="/static/img/visual3.png" class="img-fluid rounded shadow-sm mb-2" alt="Correo 3">
+                <select name="v3" class="form-select" required>
+                  <option value="">¿Es phishing o seguro?</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="text-center">
+                <button type="submit" class="btn btn-primary">✅ Evaluar Respuestas</button>
+              </div>
+            </form>
+            <div id="resultadoVisual" class="alert alert-info fw-bold text-center mt-4" style="display: none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Modal: Detección Rápida -->
+    <div class="modal fade" id="modalJuegoRapido" tabindex="-1" aria-labelledby="modalJuegoRapidoLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="modalJuegoRapidoLabel">⚡ Detección Rápida</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body text-center">
+            <div id="contadorRapido" class="fs-1 mb-4 text-danger">10</div>
+            <div id="preguntaRapido" class="fs-5 mb-3 fw-bold">Cargando pregunta...</div>
+            <div class="d-flex justify-content-center gap-3">
+              <button class="btn btn-danger" onclick="responderRapido('phishing')">🚨 Phishing</button>
+              <button class="btn btn-success" onclick="responderRapido('seguro')">✅ Seguro</button>
+            </div>
+            <div id="resultadoRapido" class="alert alert-info fw-bold text-center mt-4" style="display: none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Modal: Tú vs el Detector -->
+    <div class="modal fade" id="modalJuegoVersus" tabindex="-1" aria-labelledby="modalJuegoVersusLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="modalJuegoVersusLabel">🤖 Tú vs el Detector</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <form id="formVersus" enctype="multipart/form-data">
+              <div class="mb-3">
+                <label for="emlFile" class="form-label">📎 Sube un archivo .eml</label>
+                <input type="file" class="form-control" id="emlFile" name="emlFile" accept=".eml" required />
+              </div>
+              <div class="mb-3">
+                <label class="form-label">¿Qué crees que es?</label>
+                <select class="form-select" name="usuarioDecision" required>
+                  <option value="">Selecciona tu predicción</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="text-center">
+                <button type="submit" class="btn btn-primary">✅ Enviar y Comparar</button>
+              </div>
+            </form>
+            <div id="resultadoVersus" class="alert alert-info text-center fw-bold mt-4" style="display: none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Modal: Acierta la Marca -->
+    <div class="modal fade" id="modalJuegoDominios" tabindex="-1" aria-labelledby="modalJuegoDominiosLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="modalJuegoDominiosLabel">🌐 Acierta la Marca</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <form id="formDominios">
+              <div class="mb-3">
+                <label>1. <code>paypal-verification.com</code></label>
+                <select name="d1" class="form-select" required>
+                  <option value="">Selecciona</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label>2. <code>apple.com</code></label>
+                <select name="d2" class="form-select" required>
+                  <option value="">Selecciona</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label>3. <code>micr0soft-support.net</code></label>
+                <select name="d3" class="form-select" required>
+                  <option value="">Selecciona</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="text-center">
+                <button type="submit" class="btn btn-primary">✅ Evaluar</button>
+              </div>
+            </form>
+            <div id="resultadoDominios" class="alert alert-info text-center fw-bold mt-4" style="display: none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+
+
+
+
 
     
   </body>
