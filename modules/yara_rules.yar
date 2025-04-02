@@ -9,6 +9,18 @@ rule SuspiciousExecutable {
         $mz at 0 or any of ($a, $b)
 }
 
+rule posible_phishing
+{
+    strings:
+        $phish1 = "verify your account"
+        $phish2 = "reset your password"
+        $phish3 = "click here"
+    condition:
+        (any of them) and filesize < 100KB
+
+}
+
+
 rule Phishing_HTML_Form {
     meta:
         description = "Formulario HTML sospechoso para captura de credenciales"

@@ -1,9 +1,15 @@
 import os
 import imaplib
 import requests
-
+import email as email_module
+from email import policy
 import modules.email_analysis as email_analysis
 import modules.db as db
+from modules.helpers import score_a_estado
+
+
+
+
 
 def send_telegram_alert(email_data, riesgo):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -43,6 +49,7 @@ def get_emails_without_session(limit=10):
         print(f"🔍 Escaneo automático: {len(email_ids)} correos a procesar.")
 
         for e_id in email_ids:
+            
             result, msg_data = mail.fetch(e_id, "(RFC822)")
             if result != "OK":
                 print(f"⚠️ Error al obtener (auto) el correo ID {e_id}.")
@@ -51,11 +58,21 @@ def get_emails_without_session(limit=10):
             for response_part in msg_data:
                 if isinstance(response_part, tuple):
                     msg_bytes = response_part[1]
-                    import email as email_module
-                    from email import policy
+                  
                     msg = email_module.message_from_bytes(msg_bytes, policy=policy.default)
                     subject = msg.get("subject", "(Sin asunto)")
                     sender = msg.get("from", "Desconocido")
+                    # Evitar volver a analizar remitentes ya procesados
+                    if db.existe_remitente(sender):
+                        print(f"🛑 Ya existe un análisis del remitente: {sender}. Se omite.")
+                        continue
+                    
+                    if db.get_email_by_message_id(message_id):
+                        print(f"📌 Correo ya analizado (Message-ID duplicado): {message_id}")
+                        continue
+
+
+
                     message_id = msg.get("Message-ID", "").strip()
 
                     body = ""
@@ -71,22 +88,35 @@ def get_emails_without_session(limit=10):
                         print(f"⚠️ Error leyendo cuerpo de correo (auto) ID {e_id}: {e}")
                         continue
 
-                    phishing_status, reasons, score = email_analysis.is_phishing(body, sender, subject, email_raw=msg_bytes)
+                    resultado = email_analysis.is_phishing({
+                        "body": body,
+                        "sender": sender,
+                        "subject": subject,
+                        "email_raw": msg_bytes
+                    })
+
+                    phishing_status = resultado["estado"]
+                    reasons = resultado["motivos"]
+                    score = resultado["score"]
+
 
                     if phishing_status.startswith("Phishing"):
                         send_telegram_alert({"from": sender, "subject": subject}, phishing_status)
 
+
+                    score_limitado = min(score, 15)
+
                     email_data = {
                         "subject": subject,
                         "from": sender,
-                        "is_phishing": phishing_status,
                         "spf_result": None,
                         "dkim_result": None,
                         "dmarc_result": None,
                         "attachments": [],
                         "message_id": message_id,
                         "reasons": reasons,
-                        "score": score,
+                        "score": score_limitado,
+                        "estado": score_a_estado(score_limitado),   
                         "user_email": email_account
                     }
                     db.save_email_to_db(email_data)
@@ -101,3 +131,4 @@ def get_emails_without_session(limit=10):
         return []
 
     return emails
+

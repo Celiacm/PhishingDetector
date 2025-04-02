@@ -2,6 +2,11 @@ import json
 import sqlite3
 import os
 
+from modules.helpers import score_a_estado
+
+
+
+
 DB_NAME = "phishing_detector.db"
 FEEDBACK_CORRECTO = "Correcto"
 FEEDBACK_INCORRECTO = "Incorrecto"
@@ -68,10 +73,35 @@ def get_feedback_stats(user_email):
 
 
 
+
+def correo_ya_analizado(message_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT id FROM correos WHERE message_id = ?", (message_id,))
+    existe = c.fetchone() is not None
+    conn.close()
+    return existe
+
+
+
+
 def save_email_to_db(data):
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
         try:
+            # ✅ Solo calcular estado si no viene en los datos
+
+            score = data.get("score", 0)
+
+            motivos = data.get("reasons", [])
+            data["estado"] = score_a_estado(score, motivos)
+
+            if isinstance(motivos, str):
+                try:
+                    motivos = json.loads(motivos)
+                except Exception:
+                    motivos = [motivos]
+
             cursor.execute('''INSERT INTO correos 
                 (user_email, subject, sender, estado, spf, dkim, dmarc, adjuntos, message_id, reasons, score, tiempo_analisis)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
@@ -97,17 +127,60 @@ def save_email_to_db(data):
 
 
 
+
 def get_email_history(user_email=None):
     with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         if user_email:
-            cursor.execute("SELECT * FROM correos WHERE user_email = ? ORDER BY fecha DESC", (user_email,))
+            cursor.execute("""
+                SELECT id, subject, sender, estado, spf, dkim, dmarc, adjuntos, message_id, reasons, score, fecha 
+                FROM correos 
+                WHERE LOWER(TRIM(user_email)) = LOWER(TRIM(?)) 
+                ORDER BY id DESC
+            """, (user_email,))
         else:
-            cursor.execute("SELECT * FROM correos ORDER BY fecha DESC")
-        results = cursor.fetchall()
-        return [dict(row) for row in results]
+            cursor.execute("""
+                SELECT id, subject, sender, estado, spf, dkim, dmarc, adjuntos, message_id, reasons, score, fecha 
+                FROM correos 
+                ORDER BY id DESC
+            """)
 
+        emails = []
+        for row in cursor.fetchall():
+            try:
+                reasons = json.loads(row[9]) if row[9] else []
+            except json.JSONDecodeError:
+                reasons = [row[9]] if row[9] else []
+
+            correo = {
+                "id": row[0],
+                "subject": row[1],
+                "sender": row[2],
+                "estado": score_a_estado(row[10], reasons),
+                "spf": bool(row[4]),
+                "dkim": bool(row[5]),
+                "dmarc": bool(row[6]),
+                "attachments": json.loads(row[7]) if row[7] else [],
+                "message_id": row[8],
+                "reasons_parsed": reasons,
+                "score": min(row[10], 15),
+                "fecha": row[11]
+            }
+            emails.append(correo)
+
+        return emails
+
+
+
+
+def existe_remitente(sender_email):
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM correos WHERE sender = ?", (sender_email,))
+        resultado = cursor.fetchone()
+        return resultado and resultado[0] > 0
+
+    
 
 
 def get_email_states(user_email):
@@ -161,12 +234,14 @@ def get_email_by_message_id(message_id):
 
 def actualizar_estado_por_score():
     conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row  # ✅ Esto convierte las filas en diccionarios
     cursor = conn.cursor()
     cursor.execute("SELECT id, score FROM correos")
     rows = cursor.fetchall()
 
     for row in rows:
-        nuevo_estado = "Phishing" if row["score"] >= 10 else "Sospechoso" if row["score"] >= 5 else "Seguro"
+        score = row["score"]
+        nuevo_estado = "Phishing" if score >= 10 else "Sospechoso" if score >= 5 else "Seguro"
         cursor.execute("UPDATE correos SET estado = ? WHERE id = ?", (nuevo_estado, row["id"]))
 
     conn.commit()

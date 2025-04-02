@@ -22,8 +22,11 @@
   </head>
   <body>
     <div class="loading-screen" id="loading">
-      <div class="spinner-border text-primary" role="
-      "></div>
+      <div
+        class="spinner-border text-primary"
+        role="
+      "
+      ></div>
       <p>Cargando sistema...</p>
     </div>
 
@@ -327,18 +330,19 @@
                       <div class="border rounded p-3 mb-3 bg-light">
                         <h6 class="fw-bold">🔍 Motivos del Análisis</h6>
                         <div class="alert alert-info">
-                          {% if correo.reasons_parsed %}
-                          <ul class="list-group list-group-flush">
-                            {% for motivo in correo.reasons_parsed %}
-                            <li class="list-group-item">{{ motivo }}</li>
-                            {% endfor %}
-                          </ul>
+                          {% set motivos = correo.reasons_parsed|from_json %}
+                          {% if motivos %}
+                            <ul class="mb-0">
+                              {% for motivo in motivos %}
+                                <li>{{ motivo }}</li>
+                              {% endfor %}
+                            </ul>
                           {% else %}
-                          <p class="text-muted">
-                            No se han identificado motivos específicos.
-                          </p>
+                            <p class="mb-0">No se han encontrado motivos.</p>
                           {% endif %}
                         </div>
+                        
+                        
                       </div>
 
                       <div class="border rounded p-3 mb-3 bg-light">
@@ -457,20 +461,21 @@
                   </p>
                   <p>
                     <strong>🔒 Estado:</strong>
-                    {% if "Phishing" in email.is_phishing %}
+                    {% if "Phishing" in email.estado %}
                     <span class="text-danger fw-bold"
-                      >🚨 {{ email.is_phishing }}</span
+                      >🚨 {{ email.estado }}</span
                     >
-                    {% elif "Sospechoso" in email.is_phishing %}
+                    {% elif "Sospechoso" in email.estado %}
                     <span class="text-warning fw-bold"
-                      >⚠️ {{ email.is_phishing }}</span
+                      >⚠️ {{ email.estado }}</span
                     >
                     {% else %}
                     <span class="text-success fw-bold"
-                      >✅ {{ email.is_phishing }}</span
+                      >✅ {{ email.estado }}</span
                     >
                     {% endif %}
                   </p>
+
                   <p>
                     <strong>📊 Puntuación de riesgo:</strong> {{ email.score
                     }}/15
@@ -502,19 +507,19 @@
 
                   <div class="border rounded p-3 mb-3 bg-light">
                     <h6 class="fw-bold">🔍 Motivos del Análisis</h6>
-                    {% if email.reasons is string %}
-                    <div class="alert alert-info">{{ email.reasons }}</div>
-                    {% elif email.reasons %}
-                    <ul class="list-group">
-                      {% for motivo in email.reasons %}
-                      <li class="list-group-item">{{ motivo }}</li>
-                      {% endfor %}
-                    </ul>
-                    {% else %}
-                    <p class="text-muted">
-                      No se han identificado motivos específicos.
-                    </p>
-                    {% endif %}
+                    <div class="alert alert-info">
+                      {% set motivos = email.reasons_parsed|from_json %}
+                      {% if motivos %}
+                        <ul class="mb-0">
+                          {% for motivo in motivos %}
+                            <li>{{ motivo }}</li>
+                          {% endfor %}
+                        </ul>
+                      {% else %}
+                        <p class="mb-0">No se han encontrado motivos.</p>
+                      {% endif %}
+                    </div>
+                    
                   </div>
 
                   <div class="border rounded p-3 mb-3 bg-light">
@@ -746,12 +751,17 @@
       </section>
       <!-- Sección completa para sustituir la actual "#test" en index.html -->
       <section id="test" class="section" style="display: none">
-        <h2 class="text-center mb-4">🧪 Centro de Entrenamiento Anti-Phishing</h2>
+        <h2 class="text-center mb-4">
+          🧪 Centro de Entrenamiento Anti-Phishing
+        </h2>
 
         <div class="row g-4 justify-content-center">
           <!-- Tarjeta 1: Análisis Visual -->
           <div class="col-md-4">
-            <div class="card p-3 shadow-sm h-100 text-center hover-card" onclick="abrirMiniJuego('visual')">
+            <div
+              class="card p-3 shadow-sm h-100 text-center hover-card"
+              onclick="abrirMiniJuego('visual')"
+            >
               <h5 class="mb-2">👁️ Análisis Visual</h5>
               <p>¿Puedes detectar un phishing solo viendo el diseño?</p>
             </div>
@@ -759,7 +769,10 @@
 
           <!-- Tarjeta 2: Desafío de Enlaces -->
           <div class="col-md-4">
-            <div class="card p-3 shadow-sm h-100 text-center hover-card" onclick="abrirMiniJuego('enlaces')">
+            <div
+              class="card p-3 shadow-sm h-100 text-center hover-card"
+              onclick="abrirMiniJuego('enlaces')"
+            >
               <h5 class="mb-2">🔗 Desafío de Enlaces</h5>
               <p>¿Puedes distinguir entre enlaces legítimos y falsos?</p>
             </div>
@@ -767,7 +780,10 @@
 
           <!-- Tarjeta 3: Detección Rápida -->
           <div class="col-md-4">
-            <div class="card p-3 shadow-sm h-100 text-center hover-card" onclick="abrirMiniJuego('rapido')">
+            <div
+              class="card p-3 shadow-sm h-100 text-center hover-card"
+              onclick="abrirMiniJuego('rapido')"
+            >
               <h5 class="mb-2">⚡ Detección Rápida</h5>
               <p>¡Tienes solo 10 segundos por correo!</p>
             </div>
@@ -775,7 +791,10 @@
 
           <!-- Tarjeta 4: Tú vs la IA -->
           <div class="col-md-4">
-            <div class="card p-3 shadow-sm h-100 text-center hover-card" onclick="abrirMiniJuego('versus')">
+            <div
+              class="card p-3 shadow-sm h-100 text-center hover-card"
+              onclick="abrirMiniJuego('versus')"
+            >
               <h5 class="mb-2">🤖 Tú vs el Detector</h5>
               <p>Compite con el sistema. ¡¿Detectarás lo mismo?!</p>
             </div>
@@ -783,7 +802,10 @@
 
           <!-- Tarjeta 5: Dominios Sospechosos -->
           <div class="col-md-4">
-            <div class="card p-3 shadow-sm h-100 text-center hover-card" onclick="abrirMiniJuego('dominios')">
+            <div
+              class="card p-3 shadow-sm h-100 text-center hover-card"
+              onclick="abrirMiniJuego('dominios')"
+            >
               <h5 class="mb-2">🌐 Acierta la Marca</h5>
               <p>¿Puedes reconocer un dominio fraudulento?</p>
             </div>
@@ -853,17 +875,31 @@
     </div>
 
     <!-- Modal: Desafío de Enlaces -->
-    <div class="modal fade" id="modalDesafioEnlaces" tabindex="-1" aria-labelledby="modalDesafioEnlacesLabel" aria-hidden="true">
+    <div
+      class="modal fade"
+      id="modalDesafioEnlaces"
+      tabindex="-1"
+      aria-labelledby="modalDesafioEnlacesLabel"
+      aria-hidden="true"
+    >
       <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title" id="modalDesafioEnlacesLabel">🔗 Desafío de Enlaces</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            <h5 class="modal-title" id="modalDesafioEnlacesLabel">
+              🔗 Desafío de Enlaces
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="Cerrar"
+            ></button>
           </div>
           <div class="modal-body">
             <form id="formEnlaces">
               <div class="mb-3">
-                <label>1. <code>https://apple.verify.com/login</code></label><br>
+                <label>1. <code>https://apple.verify.com/login</code></label
+                ><br />
                 <select class="form-select" name="e1" required>
                   <option value="">Selecciona una opción</option>
                   <option value="seguro">✅ Seguro</option>
@@ -871,7 +907,8 @@
                 </select>
               </div>
               <div class="mb-3">
-                <label>2. <code>https://www.paypal.com/security</code></label><br>
+                <label>2. <code>https://www.paypal.com/security</code></label
+                ><br />
                 <select class="form-select" name="e2" required>
                   <option value="">Selecciona una opción</option>
                   <option value="seguro">✅ Seguro</option>
@@ -879,7 +916,8 @@
                 </select>
               </div>
               <div class="mb-3">
-                <label>3. <code>http://login-bank.xyz/verify</code></label><br>
+                <label>3. <code>http://login-bank.xyz/verify</code></label
+                ><br />
                 <select class="form-select" name="e3" required>
                   <option value="">Selecciona una opción</option>
                   <option value="seguro">✅ Seguro</option>
@@ -887,27 +925,50 @@
                 </select>
               </div>
               <div class="text-center">
-                <button type="submit" class="btn btn-primary">✅ Enviar Respuestas</button>
+                <button type="submit" class="btn btn-primary">
+                  ✅ Enviar Respuestas
+                </button>
               </div>
             </form>
 
-            <div id="resultadoEnlaces" class="alert alert-info fw-bold text-center mt-4" style="display: none;"></div>
+            <div
+              id="resultadoEnlaces"
+              class="alert alert-info fw-bold text-center mt-4"
+              style="display: none"
+            ></div>
           </div>
         </div>
       </div>
     </div>
     <!-- Modal: Análisis Visual -->
-    <div class="modal fade" id="modalJuegoVisual" tabindex="-1" aria-labelledby="modalJuegoVisualLabel" aria-hidden="true">
+    <div
+      class="modal fade"
+      id="modalJuegoVisual"
+      tabindex="-1"
+      aria-labelledby="modalJuegoVisualLabel"
+      aria-hidden="true"
+    >
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title" id="modalJuegoVisualLabel">👁️ Análisis Visual</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            <h5 class="modal-title" id="modalJuegoVisualLabel">
+              👁️ Análisis Visual
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="Cerrar"
+            ></button>
           </div>
           <div class="modal-body">
             <form id="formVisual">
               <div class="mb-4">
-                <img src="/static/img/visual1.png" class="img-fluid rounded shadow-sm mb-2" alt="Correo 1">
+                <img
+                  src="/static/img/visual1.png"
+                  class="img-fluid rounded shadow-sm mb-2"
+                  alt="Correo 1"
+                />
                 <select name="v1" class="form-select" required>
                   <option value="">¿Es phishing o seguro?</option>
                   <option value="phishing">🚨 Phishing</option>
@@ -915,7 +976,11 @@
                 </select>
               </div>
               <div class="mb-4">
-                <img src="/static/img/visual2.png" class="img-fluid rounded shadow-sm mb-2" alt="Correo 2">
+                <img
+                  src="/static/img/visual2.png"
+                  class="img-fluid rounded shadow-sm mb-2"
+                  alt="Correo 2"
+                />
                 <select name="v2" class="form-select" required>
                   <option value="">¿Es phishing o seguro?</option>
                   <option value="phishing">🚨 Phishing</option>
@@ -923,7 +988,11 @@
                 </select>
               </div>
               <div class="mb-4">
-                <img src="/static/img/visual3.png" class="img-fluid rounded shadow-sm mb-2" alt="Correo 3">
+                <img
+                  src="/static/img/visual3.png"
+                  class="img-fluid rounded shadow-sm mb-2"
+                  alt="Correo 3"
+                />
                 <select name="v3" class="form-select" required>
                   <option value="">¿Es phishing o seguro?</option>
                   <option value="phishing">🚨 Phishing</option>
@@ -931,47 +1000,104 @@
                 </select>
               </div>
               <div class="text-center">
-                <button type="submit" class="btn btn-primary">✅ Evaluar Respuestas</button>
+                <button type="submit" class="btn btn-primary">
+                  ✅ Evaluar Respuestas
+                </button>
               </div>
             </form>
-            <div id="resultadoVisual" class="alert alert-info fw-bold text-center mt-4" style="display: none;"></div>
+            <div
+              id="resultadoVisual"
+              class="alert alert-info fw-bold text-center mt-4"
+              style="display: none"
+            ></div>
           </div>
         </div>
       </div>
     </div>
     <!-- Modal: Detección Rápida -->
-    <div class="modal fade" id="modalJuegoRapido" tabindex="-1" aria-labelledby="modalJuegoRapidoLabel" aria-hidden="true">
+    <div
+      class="modal fade"
+      id="modalJuegoRapido"
+      tabindex="-1"
+      aria-labelledby="modalJuegoRapidoLabel"
+      aria-hidden="true"
+    >
       <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title" id="modalJuegoRapidoLabel">⚡ Detección Rápida</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            <h5 class="modal-title" id="modalJuegoRapidoLabel">
+              ⚡ Detección Rápida
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="Cerrar"
+            ></button>
           </div>
           <div class="modal-body text-center">
             <div id="contadorRapido" class="fs-1 mb-4 text-danger">10</div>
-            <div id="preguntaRapido" class="fs-5 mb-3 fw-bold">Cargando pregunta...</div>
-            <div class="d-flex justify-content-center gap-3">
-              <button class="btn btn-danger" onclick="responderRapido('phishing')">🚨 Phishing</button>
-              <button class="btn btn-success" onclick="responderRapido('seguro')">✅ Seguro</button>
+            <div id="preguntaRapido" class="fs-5 mb-3 fw-bold">
+              Cargando pregunta...
             </div>
-            <div id="resultadoRapido" class="alert alert-info fw-bold text-center mt-4" style="display: none;"></div>
+            <div class="d-flex justify-content-center gap-3">
+              <button
+                class="btn btn-danger"
+                onclick="responderRapido('phishing')"
+              >
+                🚨 Phishing
+              </button>
+              <button
+                class="btn btn-success"
+                onclick="responderRapido('seguro')"
+              >
+                ✅ Seguro
+              </button>
+            </div>
+            <div
+              id="resultadoRapido"
+              class="alert alert-info fw-bold text-center mt-4"
+              style="display: none"
+            ></div>
           </div>
         </div>
       </div>
     </div>
     <!-- Modal: Tú vs el Detector -->
-    <div class="modal fade" id="modalJuegoVersus" tabindex="-1" aria-labelledby="modalJuegoVersusLabel" aria-hidden="true">
+    <div
+      class="modal fade"
+      id="modalJuegoVersus"
+      tabindex="-1"
+      aria-labelledby="modalJuegoVersusLabel"
+      aria-hidden="true"
+    >
       <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title" id="modalJuegoVersusLabel">🤖 Tú vs el Detector</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            <h5 class="modal-title" id="modalJuegoVersusLabel">
+              🤖 Tú vs el Detector
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="Cerrar"
+            ></button>
           </div>
           <div class="modal-body">
             <form id="formVersus" enctype="multipart/form-data">
               <div class="mb-3">
-                <label for="emlFile" class="form-label">📎 Sube un archivo .eml</label>
-                <input type="file" class="form-control" id="emlFile" name="emlFile" accept=".eml" required />
+                <label for="emlFile" class="form-label"
+                  >📎 Sube un archivo .eml</label
+                >
+                <input
+                  type="file"
+                  class="form-control"
+                  id="emlFile"
+                  name="emlFile"
+                  accept=".eml"
+                  required
+                />
               </div>
               <div class="mb-3">
                 <label class="form-label">¿Qué crees que es?</label>
@@ -982,21 +1108,40 @@
                 </select>
               </div>
               <div class="text-center">
-                <button type="submit" class="btn btn-primary">✅ Enviar y Comparar</button>
+                <button type="submit" class="btn btn-primary">
+                  ✅ Enviar y Comparar
+                </button>
               </div>
             </form>
-            <div id="resultadoVersus" class="alert alert-info text-center fw-bold mt-4" style="display: none;"></div>
+            <div
+              id="resultadoVersus"
+              class="alert alert-info text-center fw-bold mt-4"
+              style="display: none"
+            ></div>
           </div>
         </div>
       </div>
     </div>
     <!-- Modal: Acierta la Marca -->
-    <div class="modal fade" id="modalJuegoDominios" tabindex="-1" aria-labelledby="modalJuegoDominiosLabel" aria-hidden="true">
+    <div
+      class="modal fade"
+      id="modalJuegoDominios"
+      tabindex="-1"
+      aria-labelledby="modalJuegoDominiosLabel"
+      aria-hidden="true"
+    >
       <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title" id="modalJuegoDominiosLabel">🌐 Acierta la Marca</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            <h5 class="modal-title" id="modalJuegoDominiosLabel">
+              🌐 Acierta la Marca
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="Cerrar"
+            ></button>
           </div>
           <div class="modal-body">
             <form id="formDominios">
@@ -1025,21 +1170,19 @@
                 </select>
               </div>
               <div class="text-center">
-                <button type="submit" class="btn btn-primary">✅ Evaluar</button>
+                <button type="submit" class="btn btn-primary">
+                  ✅ Evaluar
+                </button>
               </div>
             </form>
-            <div id="resultadoDominios" class="alert alert-info text-center fw-bold mt-4" style="display: none;"></div>
+            <div
+              id="resultadoDominios"
+              class="alert alert-info text-center fw-bold mt-4"
+              style="display: none"
+            ></div>
           </div>
         </div>
       </div>
     </div>
-
-
-
-
-
-
-
-    
   </body>
 </html>

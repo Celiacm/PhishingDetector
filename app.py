@@ -1,36 +1,37 @@
+import email
 import os
 import csv, json
 import io, time
 import imaplib
 import logging
-from flask import Flask, redirect, url_for, session, request, render_template, jsonify, Response, send_file
+from flask import Flask, redirect, url_for, session, request, render_template, jsonify, Response, send_file, make_response
 from requests_oauthlib import OAuth2Session
+from jinja2 import Environment, select_autoescape
+
 from fpdf import FPDF
 from datetime import datetime
 from dotenv import load_dotenv
 from email import policy
 from email.parser import BytesParser
-from flask import request, jsonify, make_response
-
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.units import cm
-from modules.email_analysis import analyze_eml_file
+
 from reportlab.platypus import Paragraph
 from reportlab.lib.styles import ParagraphStyle
 
+# Importar módulos locales
 from modules.scheduler import run as start_scheduler
 from modules.error_handler import init_error_handlers
 from modules.db import get_email_by_id
 
-from modules.email_analysis import is_phishing
-
-# Importar módulos locales
+import modules.email_analysis as email_analysis
 import modules.db as db        # Funciones de base de datos
-import modules.email_analysis as email_analysis  # Análisis de correos y adjuntos
 import modules.utils as utils  # Utilidades generales (Telegram, etc.)
+
+
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY")
@@ -134,11 +135,14 @@ def logout():
     return resp
   
 
+
+
+
 def get_emails():
     provider = session.get("provider")
     if not provider:
         return []
-    imap_server = OAUTH_CONFIG[provider]["imap_server"]
+
     token = session.get("oauth_token", {}).get("access_token")
     email_account = session.get("email")
     if not token or not email_account:
@@ -146,108 +150,127 @@ def get_emails():
 
     emails = []
     try:
-        mail = imaplib.IMAP4_SSL(imap_server)
+        mail = imaplib.IMAP4_SSL(OAUTH_CONFIG[provider]["imap_server"])
         mail.authenticate("XOAUTH2", lambda x: f"user={email_account}\1auth=Bearer {token}\1\1")
-
         mail.select("inbox")
+
         result, data = mail.search(None, "ALL")
-        print("Resultado búsqueda de correos:", result, data) ##prueba, despues quitar
-
-        if result != "OK" or not data or not data[0]:
+        if result != "OK":
             return []
-        email_ids = data[0].split()
-        
-        print(" IDs de correos:", email_ids)
-        for e_id in email_ids:
-            result, msg_data = mail.fetch(e_id, "(RFC822)")
-            if result != "OK":
-                continue
-            for response_part in msg_data:
-                if isinstance(response_part, tuple):
-                    import email as email_module
-                    msg_bytes = response_part[1]
-                    msg = email_module.message_from_bytes(msg_bytes, policy=policy.default)
-                    subject = msg.get("subject", "(Sin asunto)")
-                    sender = msg.get("from", "Desconocido")
-                    message_id = msg.get("Message-ID", "").strip()
-                    if msg.is_multipart():
-                        body = ""
-                        for part in msg.walk():
-                            if part.get_content_type() == "text/plain":
-                                body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
-                                break
-                    else:
-                        body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
-                    attachments_analysis = []
-                    if msg.is_multipart():
-                        for part in msg.walk():
-                            if part.get_content_maintype() == "multipart" or part.get_content_disposition() is None:
-                                continue
-                            result_attach = email_analysis.analyze_attachment(part)
-                            attachments_analysis.append(result_attach)
-                    
 
-                    spf_bool = email_analysis.check_spf(sender)
-                    dkim_bool = email_analysis.check_dkim(msg_bytes)
-                    dmarc_bool = email_analysis.check_dmarc(sender)
+        for e_id in data[0].split():
+            email_data = process_email(mail, e_id)
+            if email_data:
+                emails.append(email_data)
 
-
-                    start = time.time()
-                    phishing_status, reasons, score = email_analysis.is_phishing(
-                        body, sender, subject, email_raw=msg_bytes, spf=spf_bool, dkim=dkim_bool, dmarc=dmarc_bool, attachments=attachments_analysis
-                    )
-                    end = time.time()
-                    if phishing_status.startswith("Phishing"):
-                        utils.send_telegram_alert({"from": sender, "subject": subject}, phishing_status)
-                    email_data = {
-                        "user_email": session.get("email"),
-                        "subject": subject,
-                        "from": sender,
-                        "estado": phishing_status,  # 👈 necesario para coherencia
-                        "spf_result": spf_bool,
-                        "dkim_result": dkim_bool,
-                        "dmarc_result": dmarc_bool,
-                        "attachments": attachments_analysis,
-                        "message_id": message_id,
-                        "reasons": json.dumps(reasons) if isinstance(reasons, list) else json.dumps([str(reasons)]),
-                        "score": score,
-                        "tiempo_analisis": round(end - start, 2),
-
-                    }
-                    emails.append(email_data)
-                    db.save_email_to_db(email_data)
         mail.logout()
     except Exception as e:
-        logger.error(f"Error general al obtener correos: {e}")
-        return []
+        logger.error(f"Error al obtener correos: {e}")
+
     return emails
+
+
+def process_email(mail, email_id):
+    result, msg_data = mail.fetch(email_id, "(RFC822)")
+    if result != "OK":
+        return None
+
+    raw_email = msg_data[0][1]
+    msg = email.message_from_bytes(raw_email, policy=policy.default)
+
+    message_id = msg.get("Message-ID", "").strip()
+    if db.get_email_by_message_id(message_id):
+        return None
+
+    subject = msg.get("subject", "(Sin asunto)")
+    sender = msg.get("from", "Desconocido")
+    body = extract_email_body(msg)
+
+    attachments = analyze_attachments(msg)
+
+    resultado = email_analysis.is_phishing({
+        "body": body,
+        "sender": sender,
+        "subject": subject,
+        "email_raw": raw_email,
+        "spf": email_analysis.check_spf(sender),
+        "dkim": email_analysis.check_dkim(raw_email),
+        "dmarc": email_analysis.check_dmarc(sender),
+        "attachments": attachments,
+        "enlaces": email_analysis.analizar_enlaces(body),
+        "return_path_diff": False,
+        "dominio_gratuito": False,
+        "header_privada": False,
+        "remitente_raro": False,
+        "adjunto_raro": email_analysis.tiene_adjuntos_raros(attachments),
+        "urgente": email_analysis.analizar_contenido(body)["urgente"],
+        "html_excesivo": email_analysis.analizar_contenido(body)["html_excesivo"]
+    })
+
+    phishing_status = resultado["estado"]
+    score = resultado["score"]
+    motivos = json.dumps(resultado["motivos"])
+    
+    start = time.time() 
+
+    email_data = {
+        "user_email": session.get("email"),
+        "subject": subject,
+        "from": sender,
+        "estado": phishing_status,
+        "spf_result": resultado["spf"],
+        "dkim_result": resultado["dkim"],
+        "dmarc_result": resultado["dmarc"],
+        "attachments": attachments,
+        "message_id": message_id,
+        "reasons": motivos,
+        "score": score,
+        "tiempo_analisis": round(time.time() - start, 2),
+    }
+
+    db.save_email_to_db(email_data)
+
+    return email_data
+
+def extract_email_body(msg):
+    body = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain":
+                body += part.get_payload(decode=True).decode("utf-8", errors="ignore")
+    else:
+        body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+    return body
+
+def analyze_attachments(msg):
+    attachments_analysis = []
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_disposition() == "attachment":
+                attachments_analysis.append(email_analysis.analyze_attachment(part))
+    return attachments_analysis
+
+
 
 @app.route("/")
 def index():
     if "oauth_token" not in session:
         return redirect(url_for("login", provider="gmail"))
-    
-    # 🚨 Escanea y guarda los correos de la cuenta actual
-    get_emails()
 
-    # 📥 Carga solo los correos del usuario actual
+    get_emails()
+    
+    print("Email en sesión:", session.get("email"))  # 👀 comprueba esto
+
     emails = db.get_email_history(session.get("email"))
-    for e in emails:
-        if "estado" not in e and "is_phishing" in e:
-            e["estado"] = e["is_phishing"]
+
     usuario_cookie = request.cookies.get("usuario")
     if usuario_cookie:
         logger.info(f"🧠 Cookie 'usuario' detectada: {usuario_cookie}")
 
-    
-    emails = db.get_email_history(session.get("email"))
-    for e in emails:
-       try:
-           e["reasons_parsed"] = json.loads(e["reasons"])
-       except Exception:
-           e["reasons_parsed"] = []
-
     return render_template("index.html", emails=emails)
+
+
+
 
 @app.route("/reportes")
 def reportes():
@@ -257,24 +280,31 @@ def reportes():
     sospechoso_count = sum(1 for e in emails if e["estado"].startswith("Sospechoso"))
     seguro_count = len(emails) - phishing_count - sospechoso_count
 
-    archivos_limpios = sum(
-        1 for e in emails
-        for adj in json.loads(e["adjuntos"])
-        if isinstance(adj, dict) and adj.get("status") == "safe"
-    )
+    archivos_sospechosos = 0
+    archivos_limpios = 0
+    archivos_peligrosos = 0
 
-    archivos_sospechosos = sum(
-        1 for e in emails
-        for adj in json.loads(e["adjuntos"])
-        if isinstance(adj, dict) and adj.get("status") == "suspicious"
-    )
+    for e in emails:
+        adjuntos_raw = e.get("attachments") or e.get("adjuntos") or "[]"
 
-    archivos_peligrosos = sum(
-        1 for e in emails
-        for adj in json.loads(e["adjuntos"])
-        if isinstance(adj, dict) and adj.get("status") == "warning"
-    )
+        try:
+            adjuntos = json.loads(adjuntos_raw) if isinstance(adjuntos_raw, str) else adjuntos_raw
+        except Exception:
+            adjuntos = []
 
+        archivos_sospechosos += sum(
+            1 for adj in adjuntos if "Phishing" in adj or "Sospechoso" in adj
+        )
+
+        archivos_limpios += sum(
+            1 for adj in adjuntos if "Phishing" not in adj and "Sospechoso" not in adj
+        )
+        archivos_peligrosos += sum(
+            1 for adj in adjuntos if "Phishing" not in adj and "Sospechoso" not in adj
+        )
+
+
+  
         # Timeline por fecha
     timeline = {}
     for e in emails:
@@ -375,15 +405,18 @@ def analyze_email_eml():
     if eml_file.filename == "":
         return jsonify({"error": "Archivo no válido"}), 400
 
-    result = analyze_eml_file(eml_file)
+    result = email_analysis.analyze_eml_file(eml_file)
 
-    # Aseguramos consistencia
-    result["estado"] = result["is_phishing"]
+    # Asegurar que siempre guardas 'reasons' en formato JSON lista
+    reasons = result.get("reasons", [])
+    if not isinstance(reasons, list):
+        reasons = [reasons]
+    result["reasons"] = json.dumps(reasons)
+
     result["user_email"] = session.get("email")
     result["message_id"] = result.get("message_id", None)
     result["tiempo_analisis"] = result.get("tiempo_analisis", 0.0)
 
-    # Guardar en la base de datos
     correo_id = db.save_email_to_db(result)
     result["correo_id"] = correo_id
 
@@ -572,7 +605,6 @@ def enviar_test():
 
 
 
-
 @app.route("/evaluar_enlaces", methods=["POST"])
 def evaluar_enlaces():
     respuestas = request.form
@@ -591,30 +623,34 @@ def evaluar_enlaces():
         "e2": "seguro",
         "e3": "phishing"
     }
-    
 
     for clave, url in casos.items():
         user_resp = respuestas.get(clave)
         total += 1
 
-        # Evaluar si la respuesta del usuario es correcta
+        resultado_analisis = email_analysis.is_phishing({
+            "body": url,
+            "sender": "prueba@ejemplo.com",
+            "subject": "Test",
+            "email_raw": b"",
+            "spf": True,
+            "dkim": True,
+            "dmarc": True,
+            "attachments": [],
+            "enlaces": email_analysis.analizar_enlaces(url),
+            "return_path_diff": False,
+            "dominio_gratuito": False,
+            "header_privada": False,
+            "remitente_raro": False,
+            "adjunto_raro": False,
+            "urgente": False,
+            "html_excesivo": False
+        })
+
+        sistema = "phishing" if resultado_analisis["estado"] == "Phishing" else "seguro"
+
         if user_resp == correctas[clave]:
             usuario_aciertos += 1
-
-        # Usar is_phishing para analizar el enlace
-        resultado, _, _ = is_phishing(
-            body=url,
-            sender="prueba@ejemplo.com",
-            subject="Test",
-            email_raw=None,
-            spf="✅ SPF válido",
-            dkim="✅ DKIM válido",
-            dmarc="✅ DMARC válido",
-            attachments=[]
-        )
-
-        sistema = "phishing" if "Phishing" in resultado else "seguro"
-
         if sistema == user_resp:
             coincidencias += 1
 
@@ -623,7 +659,9 @@ def evaluar_enlaces():
         "coincidencias": coincidencias,
         "total": total
     })
-    
+
+
+
 @app.route("/evaluar_visual", methods=["POST"])
 def evaluar_visual():
     respuestas = request.form
@@ -647,22 +685,29 @@ def evaluar_visual():
         user_resp = respuestas.get(clave)
         total += 1
 
+        resultado_analisis = email_analysis.is_phishing({
+            "body": texto,
+            "sender": "test@fake.com",
+            "subject": "Correo visual",
+            "email_raw": b"",
+            "spf": True,
+            "dkim": True,
+            "dmarc": True,
+            "attachments": [],
+            "enlaces": email_analysis.analizar_enlaces(texto),
+            "return_path_diff": False,
+            "dominio_gratuito": False,
+            "header_privada": False,
+            "remitente_raro": False,
+            "adjunto_raro": False,
+            "urgente": True,  # para asegurar detección de urgencia
+            "html_excesivo": False
+        })
+
+        sistema = "phishing" if resultado_analisis["estado"] == "Phishing" else "seguro"
+
         if user_resp == correctas[clave]:
             usuario_aciertos += 1
-
-        resultado, _, _ = is_phishing(
-            body=texto,
-            sender="test@fake.com",
-            subject="Correo visual",
-            email_raw=None,
-            spf="✅ SPF válido",
-            dkim="✅ DKIM válido",
-            dmarc="✅ DMARC válido",
-            attachments=[]
-        )
-
-        sistema = "phishing" if "Phishing" in resultado else "seguro"
-
         if sistema == user_resp:
             coincidencias += 1
 
@@ -679,22 +724,28 @@ def evaluar_visual():
 def analizar_respuesta_rapida():
     texto = request.form.get("texto", "")
 
-    resultado, _, _ = is_phishing(
-        body=texto,
-        sender="jugador@test.com",
-        subject="Juego Rápido",
-        email_raw=None,
-        spf="✅ SPF válido",
-        dkim="✅ DKIM válido",
-        dmarc="✅ DMARC válido",
-        attachments=[]
-    )
+    resultado_analisis = email_analysis.is_phishing({
+        "body": texto,
+        "sender": "jugador@test.com",
+        "subject": "Juego Rápido",
+        "email_raw": b"",
+        "spf": True,
+        "dkim": True,
+        "dmarc": True,
+        "attachments": [],
+        "enlaces": email_analysis.analizar_enlaces(texto),
+        "return_path_diff": False,
+        "dominio_gratuito": False,
+        "header_privada": False,
+        "remitente_raro": False,
+        "adjunto_raro": False,
+        "urgente": any(palabra in texto.lower() for palabra in email_analysis.KEYWORDS),
+        "html_excesivo": False
+    })
 
-    sistema = "phishing" if "Phishing" in resultado else "seguro"
+    sistema = "phishing" if resultado_analisis["estado"] == "Phishing" else "seguro"
 
     return jsonify({"resultado": sistema})
-
-
 
 
 
@@ -709,34 +760,42 @@ def evaluar_versus():
 
     raw_bytes = archivo.read()
 
-    # analizar usando tu función analyze_eml_file desde email_analysis.py
-    eml_info = analyze_eml_file(io.BytesIO(raw_bytes))
+    eml_info = email_analysis.analyze_eml_file(io.BytesIO(raw_bytes))
 
     subject = eml_info.get("subject", "")
     sender = eml_info.get("from", "")
     body = eml_info.get("body", "")
     attachments = eml_info.get("attachments", [])
-    message_id = eml_info.get("message_id", "")
 
-    resultado, _, _ = is_phishing(
-        body=body,
-        sender=sender,
-        subject=subject,
-        email_raw=raw_bytes,
-        spf="✅ SPF válido",
-        dkim="✅ DKIM válido",
-        dmarc="✅ DMARC válido",
-        attachments=attachments
-    )
+    resultado_enlaces = email_analysis.analizar_enlaces(body)
+    resultado_cabeceras = email_analysis.analizar_cabeceras(raw_bytes)
+    resultado_contenido = email_analysis.analizar_contenido(body)
 
-    sistema = "phishing" if "Phishing" in resultado else "seguro"
+    resultado_analisis = email_analysis.is_phishing({
+        "body": body,
+        "sender": sender,
+        "subject": subject,
+        "email_raw": raw_bytes,
+        "spf": email_analysis.check_spf(sender),
+        "dkim": email_analysis.check_dkim(raw_bytes),
+        "dmarc": email_analysis.check_dmarc(sender),
+        "attachments": attachments,
+        "enlaces": resultado_enlaces,
+        "return_path_diff": resultado_cabeceras["return_path_diff"],
+        "dominio_gratuito": resultado_cabeceras["dominio_gratuito"],
+        "header_privada": resultado_cabeceras["header_privada"],
+        "remitente_raro": resultado_cabeceras["remitente_raro"],
+        "adjunto_raro": email_analysis.tiene_adjuntos_raros(attachments),
+        "urgente": resultado_contenido["urgente"],
+        "html_excesivo": resultado_contenido["html_excesivo"]
+    })
+
+    sistema = "phishing" if resultado_analisis["estado"] == "Phishing" else "seguro"
 
     return jsonify({
         "usuario": usuario,
         "sistema": sistema
     })
-
-
 
 
 @app.route("/evaluar_dominios", methods=["POST"])
@@ -758,26 +817,33 @@ def evaluar_dominios():
         "d3": "phishing"
     }
 
-    for clave, url in dominios.items():
+    for clave, dominio in dominios.items():
         user_resp = respuestas.get(clave)
         total += 1
 
+        resultado_analisis = email_analysis.is_phishing({
+            "body": dominio,
+            "sender": f"test@{dominio}",
+            "subject": "Test dominio",
+            "email_raw": b"",
+            "spf": True,
+            "dkim": True,
+            "dmarc": True,
+            "attachments": [],
+            "enlaces": email_analysis.analizar_enlaces(dominio),
+            "return_path_diff": False,
+            "dominio_gratuito": dominio.endswith(tuple(email_analysis.SUSPICIOUS_TLDS)),
+            "header_privada": False,
+            "remitente_raro": False,
+            "adjunto_raro": False,
+            "urgente": False,
+            "html_excesivo": False
+        })
+
+        sistema = "phishing" if resultado_analisis["estado"] == "Phishing" else "seguro"
+
         if user_resp == correctas[clave]:
             usuario_aciertos += 1
-
-        resultado, _, _ = is_phishing(
-            body=url,
-            sender="test@correo.com",
-            subject="Test dominio",
-            email_raw=None,
-            spf="✅ SPF válido",
-            dkim="✅ DKIM válido",
-            dmarc="✅ DMARC válido",
-            attachments=[]
-        )
-
-        sistema = "phishing" if "Phishing" in resultado else "seguro"
-
         if sistema == user_resp:
             coincidencias += 1
 
@@ -790,8 +856,22 @@ def evaluar_dominios():
 
 
 @app.context_processor
+def utility_processor():
+    return dict(loads=json.loads)
+
+
+
+@app.context_processor
 def inject_now():
     return {'now': datetime.utcnow}
+
+@app.template_filter('from_json')
+def from_json_filter(s):
+    try:
+        return json.loads(s)
+    except Exception:
+        return []
+
 
 
 

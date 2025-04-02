@@ -1,8 +1,7 @@
 import dns.resolver
 import yara
-import os, re
+import os, re, time, dkim
 import requests
-import re, time
 from email.utils import parseaddr
 from urllib.parse import urlparse
 import hashlib
@@ -12,6 +11,10 @@ import tempfile
 from email import policy
 from email.parser import BytesParser
 from email import message_from_bytes
+from modules.db import correo_ya_analizado
+from modules.helpers import score_a_estado
+
+
 
 
 
@@ -20,20 +23,20 @@ from email import message_from_bytes
 yara_rules = yara.compile(filepath="modules/yara_rules.yar") if os.path.exists("modules/yara_rules.yar") else None
 
 
+
 PESOS = {
-    "yara_match": 3,
-    "display_fake": 2,
-    "brand_spoof": 2,
-    "short_url": 2,
-    "suspicious_domain": 2,
-    "suspicious_link": 2,
-    "fake_link_text": 1,
-    "dangerous_words": 1,
-    "threat_phrases": 2,
-    "bad_attachment": 3,
-    "spf_fail": 2,
-    "dkim_fail": 2,
-    "dmarc_fail": 2
+        "auth_fail": 3,
+        "enlace_sospechoso": 4,
+        "enlace_ip": 3,
+        "enlace_ofuscado": 2,
+        "exceso_enlaces": 1,
+        "remitente_raro": 2,
+        "return_path_diff": 2,
+        "dominio_gratuito": 2,
+        "header_privada": 1,
+        "adjunto_raro": 2,
+        "mensaje_urgente": 2,
+        "contenido_html": 1,
 }
 
 BRAND_KEYWORDS = ["paypal", "apple", "netflix", "amazon", "bbva", "santander"]
@@ -95,6 +98,10 @@ def analyze_eml_file(eml_file):
         msg = BytesParser(policy=policy.default).parsebytes(raw_bytes)
         
         message_id = msg.get("Message-ID", "").strip()
+        if correo_ya_analizado(message_id):
+            return {
+                "error": "Este correo ya ha sido analizado previamente."
+            }
         subject = msg["subject"] or "(Sin asunto)"
         sender = msg["from"] or "(Remitente desconocido)"
         body = ""
@@ -121,14 +128,36 @@ def analyze_eml_file(eml_file):
         dmarc_bool = dmarc_result.startswith("✅")
 
         # Análisis de phishing real
-        is_phishing_result, reasons, score = is_phishing(
-            body, sender, subject,
-            email_raw=raw_bytes,
-            spf=spf_bool,
-            dkim=dkim_bool,
-            dmarc=dmarc_bool,
-            attachments=analyzed_attachments
-        )
+        resultado_enlaces = analizar_enlaces(body)
+        resultado_cabeceras = analizar_cabeceras(raw_bytes)
+        resultado_contenido = analizar_contenido(body)
+
+        resultado_analisis = is_phishing({
+            "body": body,
+            "sender": sender,
+            "subject": subject,
+            "email_raw": raw_bytes,
+            "spf": spf_bool,
+            "dkim": dkim_bool,
+            "dmarc": dmarc_bool,
+            "attachments": analyzed_attachments,
+            "enlaces": resultado_enlaces,
+            "return_path_diff": resultado_cabeceras["return_path_diff"],
+            "dominio_gratuito": resultado_cabeceras["dominio_gratuito"],
+            "header_privada": resultado_cabeceras["header_privada"],
+            "remitente_raro": resultado_cabeceras["remitente_raro"],
+            "adjunto_raro": tiene_adjuntos_raros(analyzed_attachments),
+            "urgente": resultado_contenido["urgente"],
+            "html_excesivo": resultado_contenido["html_excesivo"]
+        })
+
+
+
+        is_phishing_result = resultado_analisis["estado"]
+        score = resultado_analisis["score"]
+        reasons = resultado_analisis["motivos"]
+
+                
 
         # Convertimos adjuntos a formato texto con emojis
         final_attachments = []
@@ -166,62 +195,111 @@ def analyze_eml_file(eml_file):
 
 
 
+
+def analizar_enlaces(body):
+    enlaces_analizados = []
+    urls = re.findall(r"https?://[^\s]+", body)
+    for url in urls:
+        tipo = None
+        host = urlparse(url).netloc.lower()
+        if any(short in host for short in SHORT_URLS):
+            tipo = "sospechoso"
+        elif es_enlace_sospechoso(url):
+            tipo = "ofuscado"
+        elif re.match(r"https?://\d{1,3}(?:\.\d{1,3}){3}", url):
+            tipo = "ip"
+        
+        if tipo:
+            enlaces_analizados.append({"tipo": tipo, "url": url})
+
+    return enlaces_analizados
+
+
+
+
 def analizar_headers(raw_email_bytes):
-    """
-    Análisis extendido de cabeceras SMTP para detectar inconsistencias, IPs sospechosas y ausencia de autenticaciones clave.
-    """
-    try:
-        mensaje = email.message_from_bytes(raw_email_bytes)
-        headers = dict(mensaje.items())
-        motivos = []
-        score = 0
+    mensaje = email.message_from_bytes(raw_email_bytes)
+    headers = dict(mensaje.items())
+    motivos = []
+    score = 0
 
-        # --- 1. Validación de autenticación básica ---
-        if not any("received-spf" in k.lower() for k in headers):
-            motivos.append("❌ Falta la cabecera Received-SPF")
-            score += 1
-        if not any("dkim-signature" in k.lower() for k in headers):
-            motivos.append("❌ Falta la cabecera DKIM-Signature")
-            score += 1
-        if not any("authentication-results" in k.lower() for k in headers):
-            motivos.append("❌ Falta la cabecera Authentication-Results")
-            score += 1
+    # Validaciones básicas
+    if not any("received-spf" in k.lower() for k in headers):
+        motivos.append("Falta cabecera Received-SPF")
+        score += 1
 
-        # --- 2. Cabeceras Received ---
-        received_headers = [v for k, v in headers.items() if k.lower() == "received"]
-        if len(received_headers) < 2:
-            motivos.append("⚠️ Número reducido de cabeceras 'Received'")
-            score += 1
+    if not any("dkim-signature" in k.lower() for k in headers):
+        motivos.append("Falta cabecera DKIM-Signature")
+        score += 1
 
-        # --- 3. Detección de IPs sospechosas ---
-        ip_pattern = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
-        for header in received_headers:
-            ips = re.findall(ip_pattern, header)
-            for ip in ips:
-                if ip.startswith("10.") or ip.startswith("192.168.") or ip.startswith("172.16."):
-                    motivos.append(f"⚠️ IP privada detectada en ruta: {ip}")
-                    score += 1
+    if not any("authentication-results" in k.lower() for k in headers):
+        motivos.append("Falta cabecera Authentication-Results")
+        score += 1
 
-        # --- 4. Análisis de inconsistencias dominio-remitente ---
-        from_header = headers.get("From", "")
-        return_path = headers.get("Return-Path", "")
-        if return_path and from_header:
-            _, from_email = parseaddr(from_header)
-            _, return_email = parseaddr(return_path)
-            if from_email and return_email and not from_email.endswith(return_email.split("@")[-1]):
-                motivos.append("❌ Dominio del From no coincide con Return-Path")
-                score += 2
+    # Cabeceras Received
+    received_headers = [v for k, v in headers.items() if k.lower() == "received"]
+    if len(received_headers) < 2:
+        motivos.append("Número reducido de cabeceras Received")
+        score += 1
 
-        # --- 5. Revisión de servicios conocidos o gratuitos ---
-        for k, v in headers.items():
-            if any(domain in v.lower() for domain in [".tk", ".ml", ".cf", ".ga", ".gq"]):
-                motivos.append(f"⚠️ Dominio sospechoso en cabecera: {v}")
-                score += 2
+    # IPs sospechosas
+    ip_pattern = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
+    for header in received_headers:
+        ips = re.findall(ip_pattern, header)
+        for ip in ips:
+            if ip.startswith(("10.", "192.168.", "172.16.")):
+                motivos.append(f"IP privada detectada: {ip}")
+                score += 1
 
-        return score, motivos
+    # Inconsistencias
+    from_header = headers.get("From", "")
+    return_path = headers.get("Return-Path", "")
+    if return_path and from_header:
+        _, from_email = parseaddr(from_header)
+        _, return_email = parseaddr(return_path)
+        if from_email and return_email and not from_email.endswith(return_email.split("@")[-1]):
+            motivos.append("Dominio del From no coincide con Return-Path")
+            score += 2
 
-    except Exception as e:
-        return 1, [f"⚠️ Error al analizar cabeceras: {str(e)}"]
+    # Dominios sospechosos
+    for v in headers.values():
+        if any(domain in v.lower() for domain in [".tk", ".ml", ".cf", ".ga", ".gq"]):
+            motivos.append(f"Dominio sospechoso en cabecera: {v}")
+            score += 2
+
+    return score, motivos
+
+
+
+
+def analizar_cabeceras(raw_email_bytes):
+    score, motivos = analizar_headers(raw_email_bytes)
+    sender_name, sender_email = extract_display_name(email.message_from_bytes(raw_email_bytes).get("From", ""))
+
+    remitente_raro = False
+    if not sender_name or re.search(r"[^\w\s]", sender_name):
+        remitente_raro = True
+
+    return {
+        "return_path_diff": any("Dominio del From no coincide con Return-Path" in motivo for motivo in motivos),
+        "dominio_gratuito": any("Dominio sospechoso en cabecera" in motivo for motivo in motivos),
+        "header_privada": any("IP privada detectada" in motivo for motivo in motivos),
+        "remitente_raro": remitente_raro
+    }
+
+
+
+
+def analizar_contenido(body):
+    urgente = any(palabra in body.lower() for palabra in THREAT_PHRASES + KEYWORDS)
+    html_excesivo = len(re.findall(r"<[^>]+>", body)) > 20  # Umbral básico de HTML
+    return {
+        "urgente": urgente,
+        "html_excesivo": html_excesivo
+    }
+
+def tiene_adjuntos_raros(attachments):
+    return any(att["filename"].lower().endswith(tuple(DANGEROUS_EXTENSIONS)) for att in attachments)
 
 
 
@@ -240,124 +318,114 @@ def extract_display_name(sender):
     return name, email_addr
 
 
-def is_phishing(body, sender, subject, email_raw, spf, dkim, dmarc, attachments=[]):
+
+
+def es_enlace_sospechoso(href):
+    parsed = urlparse(href)
+    host = parsed.netloc.lower()
+
+    if re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", host):
+        return "Enlace apunta a IP directa"
+
+    if "%" in href or "@" in href:
+        return "Enlace contiene codificación ofuscada o '@'"
+
+    if "xn--" in host:
+        return "Enlace usa Punycode (posible suplantación)"
+
+    return None  # Si no hay problemas, no penaliza
+
+
+
+
+def is_phishing(email_data: dict) -> dict:
+    """
+    Analiza un correo y determina si es phishing, sospechoso o seguro.
+    Retorna un diccionario con estado, score y motivos.
+    """
     score = 0
     motivos = []
 
-    # --- Análisis de encabezados SMTP ---
-    if email_raw:
-        header_score, header_motivos = analizar_headers(email_raw)
-        score += header_score
-        motivos.extend(header_motivos)
-
-    # --- YARA rules ---
-    if match_yara(body):
-        score += PESOS["yara_match"]
-        motivos.append("Coincidencia con reglas YARA")
-
-    # --- Display spoof ---
-    display, real = extract_display_name(sender)
-    if display and real and display.lower() != real.lower():
-        score += PESOS["display_fake"]
-        motivos.append("Nombre del remitente no coincide con email")
-
-    # --- Brand spoof ---
-    if any(b in sender.lower() or b in subject.lower() for b in BRAND_KEYWORDS):
-        score += PESOS["brand_spoof"]
-        motivos.append("Mención a marca suplantada")
-
-    # --- Short URL ---
-    if any(s in body for s in SHORT_URLS):
-        score += PESOS["short_url"]
-        motivos.append("Uso de acortadores de URL")
-
-    # --- Dominio sospechoso ---
-    parsed_sender = sender.split("@")[-1] if "@" in sender else sender
-    if any(parsed_sender.endswith(tld) for tld in SUSPICIOUS_TLDS):
-        score += PESOS["suspicious_domain"]
-        motivos.append("Dominio sospechoso o gratuito")
-
-    # --- Enlaces engañosos: texto visible vs destino real ---
-    anchor_tags = re.findall(r'<a\s+(?:[^>]*?\s+)?href="([^"]+)"[^>]*>(.*?)</a>', body, re.IGNORECASE)
-    for href, texto in anchor_tags:
-        href_domain = urlparse(href).netloc.lower()
-        text_domain = urlparse(texto).netloc.lower() if "http" in texto else texto.lower()
-
-        if text_domain and text_domain not in href_domain:
-            score += PESOS["fake_link_text"]
-            motivos.append(f"⚠️ Enlace sospechoso: texto '{texto}' apunta a '{href}'")
-            break  # solo penalizamos una vez
-
-    if len(anchor_tags) > 5:
-        score += 1
-        motivos.append("⚠️ Número elevado de enlaces en el correo")
-        
     
-    # --- Enlace apunta a IP o contiene codificación ofuscada ---
-    for href, _ in anchor_tags:
-        parsed = urlparse(href)
-        host = parsed.netloc
 
-        # 1. Enlace a IP
-        if re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", host):
-            score += PESOS["suspicious_link"]
-            motivos.append(f"⚠️ Enlace apunta a una IP directa: {host}")
-            break
-
-        # 2. Enlace ofuscado
-        if "%" in href or "@" in href:
-            score += PESOS["suspicious_link"]
-            motivos.append(f"⚠️ Enlace contiene codificación ofuscada o '@': {href}")
-            break
-        
-        # 3. Enlace con punycode
-        if "xn--" in host:
-            score += PESOS["suspicious_link"]
-            motivos.append(f"⚠️ Enlace usa Punycode (posible suplantación): {href}")
-            break
-
-
-
-    # --- Palabras peligrosas ---
-    if any(k in body.lower() for k in KEYWORDS):
-        score += PESOS["dangerous_words"]
-        motivos.append("Palabras clave sospechosas")
-
-    # --- Frases de amenaza ---
-    if any(f in body.lower() for f in THREAT_PHRASES):
-        score += PESOS["threat_phrases"]
-        motivos.append("Frases que generan miedo o urgencia")
-
-    # --- Adjuntos peligrosos ---
-    for a in attachments:
-        if a.get("status") == "suspicious":
-            score += PESOS["bad_attachment"]
-            motivos.append(a.get("reason", "Adjunto sospechoso"))
-
-    # --- Autenticación ---
-    if not spf:
-        score += PESOS["spf_fail"]
+    # 1. Validaciones SPF/DKIM/DMARC
+    if not email_data.get("spf", True):
+        score += PESOS["auth_fail"]
         motivos.append("SPF fallido")
-    if not dkim:
-        score += PESOS["dkim_fail"]
+    if not email_data.get("dkim", True):
+        score += PESOS["auth_fail"]
         motivos.append("DKIM fallido")
-    if not dmarc:
-        score += PESOS["dmarc_fail"]
+    if not email_data.get("dmarc", True):
+        score += PESOS["auth_fail"]
         motivos.append("DMARC fallido")
 
-    max_score = 15
-    score = min(score, max_score)
+    # 2. Análisis de enlaces
+    for enlace in email_data.get("enlaces", []):
+        if enlace.get("tipo") == "sospechoso":
+            score += PESOS["enlace_sospechoso"]
+            motivos.append(f"Enlace sospechoso: {enlace['url']}")
+        elif enlace.get("tipo") == "ip":
+            score += PESOS["enlace_ip"]
+            motivos.append(f"Enlace con dirección IP: {enlace['url']}")
+        elif enlace.get("tipo") == "ofuscado":
+            score += PESOS["enlace_ofuscado"]
+            motivos.append(f"Enlace ofuscado: {enlace['url']}")
 
-    if score >= 10:
-        estado = "Phishing"
-    elif score >= 5:
-        estado = "Sospechoso"
-    else:
-        estado = "Seguro"
+    if len(email_data.get("enlaces", [])) >= 10:
+        score += PESOS["exceso_enlaces"]
+        motivos.append("Demasiados enlaces en el correo")
+
+    # 3. Cabeceras
+    if email_data.get("return_path_diff", False):
+        score += PESOS["return_path_diff"]
+        motivos.append("El Return-Path difiere del remitente")
+
+    if email_data.get("dominio_gratuito", False):
+        score += PESOS["dominio_gratuito"]
+        motivos.append("El dominio del remitente es gratuito (tipo gmail, yahoo, etc.)")
+
+    if email_data.get("header_privada", False):
+        score += PESOS["header_privada"]
+        motivos.append("Cabecera contiene IP privada o reservada")
+
+    # 4. Remitente raro (nombre extraño o dominio sin relación)
+    if email_data.get("remitente_raro", False):
+        score += PESOS["remitente_raro"]
+        motivos.append("Nombre o dirección del remitente no coincide con el dominio esperado")
+
+    # 5. Adjunto peligroso
+    if email_data.get("adjunto_raro", False):
+        score += PESOS["adjunto_raro"]
+        motivos.append("Adjunto con extensión inusual o peligrosa")
+
+    # 6. Contenido
+    if email_data.get("urgente", False):
+        score += PESOS["mensaje_urgente"]
+        motivos.append("Lenguaje de urgencia o presión detectado")
+
+    if email_data.get("html_excesivo", False):
+        score += PESOS["contenido_html"]
+        motivos.append("Correo contiene HTML excesivo o sospechoso")
+
+    # 7. Clasificación final según puntuación total
+
+    estado = score_a_estado(score, motivos)
 
 
 
-    return estado, motivos, score
+
+    return {
+        "estado": estado,
+        "score": score,
+        "motivos": motivos,
+        "spf": email_data.get("spf"),
+        "dkim": email_data.get("dkim"),
+        "dmarc": email_data.get("dmarc")
+    }
+
+
+
+
 
 
 
@@ -367,15 +435,18 @@ def check_spf(sender):
         answers = dns.resolver.resolve(domain, "TXT")
         for rdata in answers:
             if "v=spf1" in str(rdata):
-                return True
+                if "-all" in str(rdata) or "~all" in str(rdata):  # Política razonable
+                    return True
         return False
     except Exception:
         return False
 
+
 def check_dkim(raw_email):
     try:
-        # Placeholder mientras no uses dkimpy u otro sistema
-        return True
+        if isinstance(raw_email, str):
+            raw_email = raw_email.encode("utf-8")
+        return dkim.verify(raw_email)
     except Exception:
         return False
 
@@ -385,10 +456,9 @@ def check_dmarc(sender):
         answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT")
         for rdata in answers:
             if "v=DMARC1" in str(rdata):
-                return True
+                if "p=reject" in str(rdata) or "p=quarantine" in str(rdata):
+                    return True
         return False
     except Exception:
         return False
 
-
-end = time.time()
