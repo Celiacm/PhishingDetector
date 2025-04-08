@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="es" data-bs-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PhishingDetector</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="{{ url_for('static', filename='css/styles.css') }}"
+      rel="stylesheet"
+    />
+    <script
+      src="{{ url_for('static', filename='js/scripts.js') }}"
+      defer
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gaugeJS/dist/gauge.min.js"></script>
+  </head>
+  <body>
+    <div class="loading-screen" id="loading">
+      <div
+        class="spinner-border text-primary"
+        role="
+      "
+      ></div>
+      <p>Cargando sistema...</p>
+    </div>
+
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+      <div class="container-fluid">
+        <a class="navbar-brand fw-bold" href="#">PhishingDetector</a>
+        <button
+          class="navbar-toggler"
+          type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#navbarNav"
+        >
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+          <ul class="navbar-nav ms-auto">
+            <li class="nav-item">
+              <a class="nav-link" href="#" onclick="showSection('inicio')"
+                >Inicio</a
+              >
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" onclick="showSection('correos')"
+                >📬 Correos</a
+              >
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" onclick="showSection('analizador')"
+                >🔍 Analizar</a
+              >
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" onclick="showSection('reportes')"
+                >📊 Reportes</a
+              >
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" onclick="showSection('test')"
+                >🧪 Test</a
+              >
+            </li>
+
+            <li class="nav-item">
+              <a class="nav-link text-danger" href="{{ url_for('logout') }}"
+                >⛔ Salir</a
+              >
+            </li>
+            <li class="nav-item">
+              <button
+                class="btn btn-sm btn-light ms-3 mt-1"
+                onclick="alternarTema()"
+              >
+                🌓
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+
+    <main class="container py-4">
+      <section id="inicio" class="section active">
+        <h2 class="text-center fw-bold mb-4">
+          👋 ¡Bienvenido a PhishingDetector!
+        </h2>
+        <div class="card mt-5 p-4 shadow-sm text-center">
+          <h5 class="fw-bold mb-3">🌟 ¿Quiénes somos?</h5>
+          <p class="text-muted mb-2">
+            Somos <strong>PhishingDetector</strong>, una plataforma educativa y
+            de seguridad diseñada para ayudarte a identificar y combatir ataques
+            de phishing de manera sencilla y eficaz.
+          </p>
+          <p class="text-muted">
+            Aprender, detectar y proteger: nuestra misión es que cualquier
+            persona esté preparada frente a amenazas online. 🔒
+          </p>
+          <p class="text-center text-muted mb-5">
+            Listo para protegerte del phishing. ⚡
+          </p>
+        </div>
+
+        <hr class="my-5" style="border-top: 1px solid #ddd" />
+
+        <div class="row text-center g-4">
+          <div class="col-md-4">
+            <div class="card border-0 shadow-sm p-3">
+              <h5>🔒 Seguridad</h5>
+              <p class="small text-muted">
+                Detecta correos de riesgo automáticamente.
+              </p>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card border-0 shadow-sm p-3">
+              <h5>📊 Reportes</h5>
+              <p class="small text-muted">
+                Analiza tendencias y estadísticas diarias.
+              </p>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card border-0 shadow-sm p-3">
+              <h5>⚙️ Precisión</h5>
+              <p class="small text-muted">
+                Modelos mejorados con autenticaciones SPF/DKIM/DMARC.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div
+          class="alert alert-warning text-center mt-4 shadow-sm"
+          id="consejoSeguridad"
+        >
+          💡 Consejo de Seguridad: Nunca hagas clic en enlaces sospechosos.
+        </div>
+        <hr class="my-5" style="border-top: 1px solid #ddd" />
+
+        <div class="text-center mt-4">
+          <button
+            class="btn btn-outline-primary btn-lg"
+            onclick="showSection('reportes')"
+          >
+            📊 Ver estadísticas completas
+          </button>
+        </div>
+
+        <hr class="my-5" style="border-top: 1px solid #ddd" />
+
+        <div class="row justify-content-center mt-4">
+          <div class="col-md-6 text-center">
+            <h6 class="mb-2">Nivel de Riesgo Actual</h6>
+            <canvas id="gaugeRiesgo" width="240" height="140"></canvas>
+
+            <div id="textoRiesgo" class="mt-2 fw-bold fs-5"></div>
+
+            <div class="progress mt-3" style="height: 20px">
+              <div
+                class="progress-bar bg-danger"
+                id="barraRiesgo"
+                role="progressbar"
+                style="width: 0%"
+              >
+                0%
+              </div>
+            </div>
+
+            <div class="card shadow-lg p-4 mt-5">
+              <h4>🎯 ¡Pon a prueba tu seguridad!</h4>
+              <p>¿Detectarías un correo peligroso a tiempo? Demuéstralo.</p>
+              <div class="d-flex justify-content-center gap-3 flex-wrap">
+                <button
+                  class="btn btn-success btn-lg"
+                  onclick="showSection('test')"
+                >
+                  ⚡ Modo Rápido
+                </button>
+                <button
+                  class="btn btn-info btn-lg"
+                  onclick="showSection('test')"
+                >
+                  🔗 Detecta Enlaces
+                </button>
+                <button
+                  class="btn btn-warning btn-lg"
+                  onclick="showSection('test')"
+                >
+                  🖼️ Visual Challenge
+                </button>
+                <button
+                  class="btn btn-primary btn-lg"
+                  onclick="showSection('test')"
+                >
+                  🛡️ Retar al Detector
+                </button>
+              </div>
+
+              <p class="mt-3 text-muted small">
+                📚 Aprende a identificar amenazas reales mientras juegas. ¡Ideal
+                para todos los niveles!
+              </p>
+            </div>
+            <hr class="my-5" style="border-top: 1px solid #ddd" />
+
+            <a
+              href="/analyze"
+              class="btn btn-primary btn-lg mt-3"
+              onclick="showSection('analizador')"
+            >
+              🚀 Analizar nuevo correo ahora
+            </a>
+          </div>
+        </div>
+
+        <div class="text-center mt-3">
+          <button
+            class="btn btn-outline-secondary btn-lg"
+            onclick="showSection('historial')"
+          >
+            📂 Ver historial de correos
+          </button>
+        </div>
+      </section>
+      <section id="historial" class="section" style="display: none">
+        <h2 class="text-center mb-4">📂 Historial de Correos Analizados</h2>
+        <div
+          class="d-flex flex-wrap justify-content-between align-items-center mb-3"
+        >
+          <div>
+            <label for="filtroEstado" class="form-label me-2"
+              >📂 Filtrar por estado:</label
+            >
+            <select id="filtroEstado" class="form-select d-inline-block w-auto">
+              <option value="">Todos</option>
+              <option value="Phishing">🚨 Phishing</option>
+              <option value="Sospechoso">⚠️ Sospechoso</option>
+              <option value="Seguro">✅ Seguro</option>
+            </select>
+          </div>
+          <div>
+            <label for="busquedaTabla" class="form-label me-2"
+              >🔍 Buscar asunto:</label
+            >
+            <input
+              type="text"
+              id="busquedaTabla"
+              placeholder="Buscar asunto..."
+              class="form-control d-inline-block w-auto"
+            />
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-striped table-hover table-bordered">
+            <thead class="table-dark">
+              <tr>
+                <th>ID</th>
+                <th>Asunto</th>
+                <th>Remitente</th>
+                <th>Estado</th>
+                <th>SPF</th>
+                <th>DKIM</th>
+                <th>DMARC</th>
+                <th>Score</th>
+                <th>Fecha</th>
+                <th>Detalles</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for correo in emails %}
+              <tr>
+                <td>{{ correo.id }}</td>
+                <td>{{ correo.subject }}</td>
+                <td>{{ correo.sender }}</td>
+                <td>
+                  {% if "Phishing" in correo.estado %}
+                  <span class="text-danger fw-bold"
+                    >🚨 {{ correo.estado }}</span
+                  >
+                  {% elif "Sospechoso" in correo.estado %}
+                  <span class="text-warning fw-bold"
+                    >⚠️ {{ correo.estado }}</span
+                  >
+                  {% else %}
+                  <span class="text-success fw-bold"
+                    >✅ {{ correo.estado }}</span
+                  >
+                  {% endif %}
+                </td>
+                <td>{% if correo.spf %}✅{% else %}❌{% endif %}</td>
+                <td>{% if correo.dkim %}✅{% else %}❌{% endif %}</td>
+                <td>{% if correo.dmarc %}✅{% else %}❌{% endif %}</td>
+                <td>{{ correo.score }}</td>
+                <td>{{ correo.fecha }}</td>
+                <td>
+                  <button
+                    class="btn btn-sm btn-primary"
+                    data-bs-toggle="modal"
+                    data-bs-target="#modalCorreoHistorial{{ correo.id }}"
+                  >
+                    Ver
+                  </button>
+                </td>
+              </tr>
+
+              <!-- Modal para mostrar los detalles -->
+              <div
+                class="modal fade"
+                id="modalCorreoHistorial{{ correo.id }}"
+                tabindex="-1"
+                aria-labelledby="modalLabel{{ correo.id }}"
+                aria-hidden="true"
+              >
+                <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5 class="modal-title fw-bold">
+                        📩 Detalles del Correo
+                      </h5>
+                      <button
+                        type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Cerrar"
+                      ></button>
+                    </div>
+                    <div class="modal-body">
+                      <p><strong>📌 Asunto:</strong> {{ correo.subject }}</p>
+                      <p><strong>📨 Remitente:</strong> {{ correo.sender }}</p>
+                      <p><strong>📅 Fecha:</strong> {{ correo.fecha }}</p>
+
+                      <p>
+                        <strong>🔒 Estado:</strong>
+                        {% if "Phishing" in correo.estado %}
+                        <span class="text-danger fw-bold"
+                          >🚨 {{ correo.estado }}</span
+                        >
+                        {% elif "Sospechoso" in correo.estado %}
+                        <span class="text-warning fw-bold"
+                          >⚠️ {{ correo.estado }}</span
+                        >
+                        {% else %}
+                        <span class="text-success fw-bold"
+                          >✅ {{ correo.estado }}</span
+                        >
+                        {% endif %}
+                      </p>
+
+                      <p>
+                        <strong>📊 Puntuación de riesgo:</strong> {{
+                        correo.score }}/15
+                      </p>
+
+                      <div class="border rounded p-3 mb-3 bg-light">
+                        <h6 class="fw-bold">
+                          🔵 Autenticación SPF, DKIM y DMARC
+                        </h6>
+                        <p>
+                          <strong>SPF:</strong> {% if correo.spf %}✅{% else
+                          %}❌{% endif %}
+                        </p>
+                        <p>
+                          <strong>DKIM:</strong> {% if correo.dkim %}✅{% else
+                          %}❌{% endif %}
+                        </p>
+                        <p>
+                          <strong>DMARC:</strong> {% if correo.dmarc %}✅{% else
+                          %}❌{% endif %}
+                        </p>
+                      </div>
+
+                      <div class="card mt-3">
+                        <div class="card-header">🔍 Motivos del Análisis</div>
+                        <div class="list-group">
+                          {% set motivos = correo.reasons %} {% if motivos is
+                          string %} {% set motivos = motivos | from_json %} {%
+                          endif %} {% if motivos is not iterable %} {% set
+                          motivos = [] %} {% endif %} {% for motivo in motivos
+                          %}
+                          <div class="list-group-item">🔎 {{ motivo }}</div>
+                          {% else %}
+                          <div class="list-group-item text-muted">
+                            (Sin motivos disponibles)
+                          </div>
+                          {% endfor %}
+                        </div>
+                      </div>
+
+                      <div class="border rounded p-3 mb-3 bg-light">
+                        <h6 class="fw-bold">📎 Archivos Adjuntos</h6>
+                        {% if correo.attachments %}
+                        <ul class="list-group">
+                          {% for adj in correo.attachments %}
+                          <li class="list-group-item">{{ adj }}</li>
+                          {% endfor %}
+                        </ul>
+                        {% else %}
+                        <p class="text-muted">
+                          No hay archivos adjuntos en este correo.
+                        </p>
+                        {% endif %}
+                      </div>
+                      <input
+                        type="hidden"
+                        class="correo-id"
+                        value="{{ correo.id }}"
+                      />
+
+                      <div class="text-center mt-3">
+                        <p>¿Fue clasificado correctamente?</p>
+                        <button
+                          class="btn btn-success btn-sm me-2 feedback-btn"
+                          data-correcto="true"
+                        >
+                          ✅ Sí
+                        </button>
+                        <button
+                          class="btn btn-danger btn-sm feedback-btn"
+                          data-correcto="false"
+                        >
+                          ❌ No
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="correos" class="section">
+        <h2 class="text-center mb-4">📬 Correos Recibidos</h2>
+        {% if emails and emails|length > 0 %}
+        <div class="row">
+          {% for email in emails %}
+          <div class="col-md-4 mb-3">
+            <div class="card p-3 shadow-sm">
+              <h5 class="fw-bold">{{ email.subject }}</h5>
+              <p>
+                <strong>Remitente:</strong> {{ email.sender or email.from or "No
+                especificado" }}
+              </p>
+              <p>
+                <strong>Estado:</strong>
+                {% if email.estado %} {% if "Phishing" in email.estado %}
+                <span class="text-danger fw-bold">🚨 {{ email.estado }}</span>
+                {% elif "Sospechoso" in email.estado %}
+                <span class="text-warning fw-bold">⚠️ {{ email.estado }}</span>
+                {% else %}
+                <span class="text-success fw-bold">✅ {{ email.estado }}</span>
+                {% endif %} {% else %}
+                <span class="text-muted">Sin analizar</span>
+                {% endif %}
+              </p>
+              <p>
+                <strong>📊 Puntuación de riesgo:</strong> {{ email.score }}/15
+              </p>
+
+              <button
+                class="btn btn-sm btn-primary"
+                data-bs-toggle="modal"
+                data-bs-target="#modalCorreo{{ email.id }}"
+              >
+                Ver detalles
+              </button>
+            </div>
+          </div>
+
+          <!-- Modal para mostrar los detalles -->
+          <div
+            class="modal fade"
+            id="modalCorreo{{ email.id }}"
+            tabindex="-1"
+            aria-labelledby="modalLabel{{ email.id }}"
+            aria-hidden="true"
+          >
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title fw-bold" id="modalLabel{{ email.id }}">
+                    📩 Detalles del Correo
+                  </h5>
+                  <button
+                    type="button"
+                    class="btn-close"
+                    data-bs-dismiss="modal"
+                    aria-label="Cerrar"
+                  ></button>
+                </div>
+                <div class="modal-body">
+                  <p><strong>📌 Asunto:</strong> {{ email.subject }}</p>
+                  <p>
+                    <strong>📨 Remitente:</strong> {{ email.sender or email.from
+                    }}
+                  </p>
+                  <p>
+                    <strong>📅 Fecha:</strong> {{ email.fecha or "Sin
+                    especificar" }}
+                  </p>
+                  <p>
+                    <strong>🔒 Estado:</strong>
+                    {% if "Phishing" in email.estado %}
+                    <span class="text-danger fw-bold"
+                      >🚨 {{ email.estado }}</span
+                    >
+                    {% elif "Sospechoso" in email.estado %}
+                    <span class="text-warning fw-bold"
+                      >⚠️ {{ email.estado }}</span
+                    >
+                    {% else %}
+                    <span class="text-success fw-bold"
+                      >✅ {{ email.estado }}</span
+                    >
+                    {% endif %}
+                  </p>
+
+                  <p>
+                    <strong>📊 Puntuación de riesgo:</strong> {{ email.score
+                    }}/15
+                  </p>
+
+                  <div class="border rounded p-3 mb-3 bg-light">
+                    <h6 class="fw-bold">🔵 Autenticación SPF, DKIM y DMARC</h6>
+                    <p>
+                      <strong>SPF:</strong> {{ "✅ Válido" if email.spf else "❌
+                      Fallido" }}
+                    </p>
+                    <p>
+                      <strong>DKIM:</strong> {{ "✅ Válido" if email.dkim else
+                      "❌ Fallido" }}
+                    </p>
+                    <p>
+                      <strong>DMARC:</strong> {{ "✅ Válido" if email.dmarc else
+                      "❌ Fallido" }}
+                    </p>
+
+                    {% if not email.spf and not email.dkim and not email.dmarc
+                    %}
+                    <div class="alert alert-warning mt-2">
+                      ⚠️ Este correo no tiene mecanismos de autenticación
+                      válidos.
+                    </div>
+                    {% endif %}
+                  </div>
+
+                  <div class="card mt-3">
+                    <div class="card-header">🔍 Motivos del Análisis</div>
+                    <div class="list-group">
+                      {% set motivos = email.reasons %} {% if motivos is string
+                      %} {% set motivos = motivos | from_json %} {% endif %} {%
+                      if motivos is not iterable %} {% set motivos = [] %} {%
+                      endif %} {% for motivo in motivos %}
+                      <div class="list-group-item">🔎 {{ motivo }}</div>
+                      {% else %}
+                      <div class="list-group-item text-muted">
+                        (Sin motivos disponibles)
+                      </div>
+                      {% endfor %}
+                    </div>
+                  </div>
+
+                  <div class="border rounded p-3 mb-3 bg-light">
+                    <h6 class="fw-bold">📎 Archivos Adjuntos</h6>
+                    {% if email.attachments %}
+                    <ul class="list-group">
+                      {% for adj in email.attachments %}
+                      <li class="list-group-item">
+                        {% if "🚨" in adj %}
+                        <span class="text-danger">Phishing 🚨 {{ adj }}</span>
+                        {% elif "⚠️" in adj %}
+                        <span class="text-warning"
+                          >Sospechoso ⚠️ {{ adj }}</span
+                        >
+                        {% else %}
+                        <span class="text-success">Seguro ✅ {{ adj }}</span>
+                        {% endif %}
+                      </li>
+                      {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-muted">
+                      No hay archivos adjuntos en este correo.
+                    </p>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted text-center">No hay correos recientes.</p>
+        {% endif %}
+      </section>
+
+      <section id="analizador" class="section">
+        <div class="container mt-5">
+          <div class="card shadow p-4 mx-auto" style="max-width: 600px">
+            <h2 class="text-center mb-4">🔍 Analizar Correo Manualmente</h2>
+            <form
+              id="emlForm"
+              enctype="multipart/form-data"
+              onsubmit="return false;"
+            >
+              <div class="mb-3 text-center">
+                <label for="eml_file" class="form-label fw-bold"
+                  >📎 Subir archivo .eml del correo</label
+                >
+                <input
+                  class="form-control form-control-lg"
+                  type="file"
+                  name="eml_file"
+                  id="eml_file"
+                  accept=".eml"
+                  required
+                />
+              </div>
+              <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-primary btn-lg">
+                  🔍 Analizar correo
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div
+          class="modal fade"
+          id="resultadoModal"
+          tabindex="-1"
+          aria-labelledby="resultadoModalLabel"
+          aria-hidden="true"
+        >
+          <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title fw-bold" id="resultadoModalLabel">
+                  📩 Detalles del Correo
+                </h5>
+                <button
+                  type="button"
+                  class="btn-close"
+                  data-bs-dismiss="modal"
+                  aria-label="Cerrar"
+                ></button>
+              </div>
+              <div class="modal-body">
+                <p>
+                  <strong>📌 Asunto:</strong> <span id="modalAsunto"></span>
+                </p>
+                <p>
+                  <strong>📨 Remitente:</strong>
+                  <span id="modalRemitente"></span>
+                </p>
+                <p><strong>📅 Fecha:</strong> <span id="modalFecha"></span></p>
+
+                <p>
+                  <strong>🔒 Estado:</strong> <span id="modalEstado"></span>
+                </p>
+
+                <p>
+                  <strong>📊 Puntuación de riesgo:</strong>
+                  <span id="modalScore"></span>
+                </p>
+
+                <div class="border rounded p-3 mb-3 bg-light">
+                  <h6 class="fw-bold">🔵 Autenticación SPF, DKIM y DMARC</h6>
+                  <p><strong>SPF:</strong> <span id="modalSPF"></span></p>
+                  <p><strong>DKIM:</strong> <span id="modalDKIM"></span></p>
+                  <p><strong>DMARC:</strong> <span id="modalDMARC"></span></p>
+                </div>
+
+                <div class="card mt-3">
+                  <div class="card-header">🔍 Motivos del Análisis</div>
+                  <ul class="list-group" id="modalMotivos">
+                    <!-- Aquí se insertarán motivos -->
+                  </ul>
+                </div>
+
+                <div class="border rounded p-3 mb-3 bg-light mt-3">
+                  <h6 class="fw-bold">📎 Archivos Adjuntos</h6>
+                  <ul class="list-group" id="modalAdjuntos">
+                    <!-- Aquí se insertarán adjuntos -->
+                  </ul>
+                </div>
+
+                <p class="mt-3">
+                  <strong>🕒 Tiempo de análisis:</strong>
+                  <span id="modalTiempo"></span> segundos
+                </p>
+
+                <input type="hidden" id="correo_id_modal" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="reportes" class="section container py-4">
+        <h2 class="mb-4">📊 Reportes del Sistema</h2>
+
+        <div class="row g-4">
+          <div class="col-md-6">
+            <div class="card p-3">
+              <h6 class="text-center">Distribución de Correos por Riesgo</h6>
+              <canvas id="phishingChart" height="250"></canvas>
+            </div>
+          </div>
+
+          <div class="col-md-6">
+            <div class="card p-3">
+              <h6 class="text-center">Estado de los Archivos Adjuntos</h6>
+              <canvas id="attachmentsChart" height="250"></canvas>
+            </div>
+          </div>
+
+          <div class="col-md-6">
+            <div class="card p-3">
+              <h6 class="text-center">Tendencia de Phishing Detectado</h6>
+              <canvas id="phishingTrendsChart" height="250"></canvas>
+            </div>
+          </div>
+
+          <div class="col-md-6">
+            <div class="card p-3">
+              <h6 class="text-center">Correos Analizados por Día</h6>
+              <canvas id="totalChart" height="250"></canvas>
+            </div>
+          </div>
+        </div>
+        <div class="row justify-content-center text-center mt-4">
+          <div class="col-md-3 col-6 mb-3">
+            <div class="card p-3 metric-card">
+              <h6 class="fw-bold">📬 Correos Analizados</h6>
+              <p class="metric-value" id="total">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-3 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">📈 Precisión</h6>
+              <p class="metric-value" id="precision">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-3 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">🎯 Sensibilidad</h6>
+              <p class="metric-value" id="sensibilidad">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-3 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">🧠 Especificidad</h6>
+              <p class="metric-value" id="especificidad">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-4 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">🕒 Tiempo Medio</h6>
+              <p class="metric-value" id="tiempo_analisis">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-4 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">⚠️ Sospechosos (%)</h6>
+              <p class="metric-value" id="porcentaje_sospechosos">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-4 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">🕵️ Último Análisis</h6>
+              <p class="metric-value" id="ultimo_analisis">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">👍 Confirmados por Usuarios</h6>
+              <p class="metric-value text-success" id="feedbackOk">--</p>
+            </div>
+          </div>
+
+          <div class="col-md-6 col-6 mb-3">
+            <div class="card p-3 metric-card bg-light">
+              <h6 class="fw-bold">👎 Marcados como Incorrectos</h6>
+              <p class="metric-value text-danger" id="feedbackKo">--</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="table-responsive shadow-sm bg-white p-4 rounded">
+          <h4 class="text-center mb-4">
+            📄 Últimos Correos Analizados Manualmente
+          </h4>
+
+          <table class="table table-hover table-bordered align-middle">
+            <thead class="table-dark">
+              <tr class="text-center">
+                <th scope="col">#</th>
+                <th scope="col">Remitente</th>
+                <th scope="col">Asunto</th>
+                <th scope="col">Estado</th>
+                <th scope="col">Fecha</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {% for correo in emails|reverse if correo.message_id %} {% if
+              loop.index <= 10 %}
+              <tr class="text-center">
+                <td>{{ correo.id }}</td>
+                <td class="text-start">{{ correo.sender }}</td>
+                <td class="text-start">{{ correo.subject }}</td>
+                <td>
+                  {% if "Phishing" in correo.estado %}
+                  <span class="badge bg-danger p-2"
+                    >🚨 {{ correo.estado }}</span
+                  >
+                  {% elif "Sospechoso" in correo.estado %}
+                  <span class="badge bg-warning text-dark p-2"
+                    >⚠️ {{ correo.estado }}</span
+                  >
+                  {% else %}
+                  <span class="badge bg-success p-2"
+                    >✅ {{ correo.estado }}</span
+                  >
+                  {% endif %}
+                </td>
+                <td>{{ correo.fecha }}</td>
+              </tr>
+              {% endif %} {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="text-center mt-4">
+          <a href="/export_csv" class="btn btn-outline-primary me-2"
+            >⬇️ Exportar CSV</a
+          >
+          <a href="/export_pdf" class="btn btn-outline-danger"
+            >⬇️ Exportar PDF</a
+          >
+        </div>
+      </section>
+      <!-- Sección completa para sustituir la actual "#test" en index.html -->
+      <section id="test" class="section" style="display: none">
+        <h2 class="text-center mb-4">🧪 Minijuegos</h2>
+
+        <div class="row g-4 justify-content-center">
+          <!-- Tarjeta 1: Análisis Visual -->
+          <div class="col-md-4">
+            <div
+              class="card p-3 shadow-sm h-100 text-center hover-card"
+              onclick="abrirMiniJuego('visual')"
+            >
+              <h5 class="mb-2">👁️ Análisis Visual</h5>
+              <p>¿Puedes detectar un phishing solo viendo el diseño?</p>
+            </div>
+          </div>
+
+          <!-- Tarjeta 2: Desafío de Enlaces -->
+          <div class="col-md-4">
+            <div
+              class="card p-3 shadow-sm h-100 text-center hover-card"
+              onclick="abrirMiniJuego('enlaces')"
+            >
+              <h5 class="mb-2">🔗 Desafío de Enlaces</h5>
+              <p>¿Puedes distinguir entre enlaces legítimos y falsos?</p>
+            </div>
+          </div>
+
+          <!-- Tarjeta 3: Detección Rápida -->
+          <div class="col-md-4">
+            <div
+              class="card p-3 shadow-sm h-100 text-center hover-card"
+              onclick="abrirMiniJuego('rapido')"
+            >
+              <h5 class="mb-2">⚡ Detección Rápida</h5>
+              <p>¡Tienes solo 10 segundos por correo!</p>
+            </div>
+          </div>
+
+          <!-- Tarjeta 4: Tú vs la IA -->
+          <div class="col-md-4">
+            <div
+              class="card p-3 shadow-sm h-100 text-center hover-card"
+              onclick="abrirMiniJuego('versus')"
+            >
+              <h5 class="mb-2">🤖 Tú vs el Detector</h5>
+              <p>Compite con el sistema. ¡¿Detectarás lo mismo?!</p>
+            </div>
+          </div>
+
+          <!-- Tarjeta 5: Dominios Sospechosos -->
+          <div class="col-md-4">
+            <div
+              class="card p-3 shadow-sm h-100 text-center hover-card"
+              onclick="abrirMiniJuego('dominios')"
+            >
+              <h5 class="mb-2">🌐 Acierta la Marca</h5>
+              <p>¿Puedes reconocer un dominio fraudulento?</p>
+            </div>
+          </div>
+        </div>
+      </section>
+      <!-- Modal Resultado Test -->
+      <div
+        class="modal fade"
+        id="modalResultadoTest"
+        tabindex="-1"
+        aria-labelledby="modalResultadoTestLabel"
+        aria-hidden="true"
+      >
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="modalResultadoTestLabel">
+                🧪 Resultado del Test
+              </h5>
+              <button
+                type="button"
+                class="btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Cerrar"
+              ></button>
+            </div>
+            <div
+              class="modal-body text-center fw-bold fs-5"
+              id="contenidoModalResultadoTest"
+            >
+              <!-- Aquí se inyectará el mensaje -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+    <footer class="bg-dark text-white text-center py-3 mt-5">
+      <div class="container">
+        <p class="mb-1">🛡️ PhishingDetector v1.0</p>
+        <p class="mb-0">
+          Desarrollado por <strong>Celia Chao Martínez</strong> | © {{
+          now().year }}
+        </p>
+      </div>
+    </footer>
+
+    <div id="cookie-banner" class="cookie-banner">
+      <p>
+        🍪 Utilizamos cookies para mejorar tu experiencia. Al aceptar, se
+        almacenará una cookie local.
+      </p>
+      <div class="d-flex justify-content-end gap-2 mt-2">
+        <button class="btn btn-success btn-sm" onclick="aceptarCookies()">
+          Aceptar
+        </button>
+        <button
+          class="btn btn-outline-secondary btn-sm"
+          onclick="rechazarCookies()"
+        >
+          Rechazar
+        </button>
+      </div>
+    </div>
+    <div id="toastFeedback" class="toast-feedback">
+      <p id="toastFeedbackMsg">Gracias por tu feedback.</p>
+    </div>
+
+    <!-- Modal: Desafío de Enlaces -->
+    <div
+      class="modal fade"
+      id="modalDesafioEnlaces"
+      tabindex="-1"
+      aria-labelledby="modalDesafioEnlacesLabel"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="modalDesafioEnlacesLabel">
+              🔗 Desafío de Enlaces
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="Cerrar"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <form id="formEnlaces">
+              <div class="mb-3">
+                <label>1. <code>https://apple.verify.com/login</code></label
+                ><br />
+                <select class="form-select" name="e1" required>
+                  <option value="">Selecciona una opción</option>
+                  <option value="seguro">✅ Seguro</option>
+                  <option value="phishing">🚨 Phishing</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label>2. <code>https://www.paypal.com/security</code></label
+                ><br />
+                <select class="form-select" name="e2" required>
+                  <option value="">Selecciona una opción</option>
+                  <option value="seguro">✅ Seguro</option>
+                  <option value="phishing">🚨 Phishing</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label>3. <code>http://login-bank.xyz/verify</code></label
+                ><br />
+                <select class="form-select" name="e3" required>
+                  <option value="">Selecciona una opción</option>
+                  <option value="seguro">✅ Seguro</option>
+                  <option value="phishing">🚨 Phishing</option>
+                </select>
+              </div>
+              <div class="text-center">
+                <button type="submit" class="btn btn-primary">
+                  ✅ Enviar Respuestas
+                </button>
+              </div>
+            </form>
+
+            <div
+              id="resultadoEnlaces"
+              class="alert alert-info fw-bold text-center mt-4"
+              style="display: none"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Modal: Análisis Visual -->
+    <div
+      class="modal fade"
+      id="modalJuegoVisual"
+      tabindex="-1"
+      aria-labelledby="modalJuegoVisualLabel"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="modalJuegoVisualLabel">
+              👁️ Análisis Visual
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="Cerrar"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <form id="formVisual">
+              <div class="mb-4">
+                <img
+                  src="/static/img/visual1.png"
+                  class="img-fluid rounded shadow-sm mb-2"
+                  alt="Correo 1"
+                />
+                <select name="v1" class="form-select" required>
+                  <option value="">¿Es phishing o seguro?</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="mb-4">
+                <img
+                  src="/static/img/visual2.png"
+                  class="img-fluid rounded shadow-sm mb-2"
+                  alt="Correo 2"
+                />
+                <select name="v2" class="form-select" required>
+                  <option value="">¿Es phishing o seguro?</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="mb-4">
+                <img
+                  src="/static/img/visual3.png"
+                  class="img-fluid rounded shadow-sm mb-2"
+                  alt="Correo 3"
+                />
+                <select name="v3" class="form-select" required>
+                  <option value="">¿Es phishing o seguro?</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="text-center">
+                <button type="submit" class="btn btn-primary">
+                  ✅ Evaluar Respuestas
+                </button>
+              </div>
+            </form>
+            <div
+              id="resultadoVisual"
+              class="alert alert-info fw-bold text-center mt-4"
+              style="display: none"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Modal: Detección Rápida -->
+    <div
+      class="modal fade"
+      id="modalJuegoRapido"
+      tabindex="-1"
+      aria-labelledby="modalJuegoRapidoLabel"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="modalJuegoRapidoLabel">
+              ⚡ Detección Rápida
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="Cerrar"
+            ></button>
+          </div>
+          <div class="modal-body text-center">
+            <div id="contadorRapido" class="fs-1 mb-4 text-danger">10</div>
+            <div id="preguntaRapido" class="fs-5 mb-3 fw-bold">
+              Cargando pregunta...
+            </div>
+            <div class="d-flex justify-content-center gap-3">
+              <button
+                class="btn btn-danger"
+                onclick="responderRapido('phishing')"
+              >
+                🚨 Phishing
+              </button>
+              <button
+                class="btn btn-success"
+                onclick="responderRapido('seguro')"
+              >
+                ✅ Seguro
+              </button>
+            </div>
+            <div
+              id="resultadoRapido"
+              class="alert alert-info fw-bold text-center mt-4"
+              style="display: none"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Modal: Tú vs el Detector -->
+    <div
+      class="modal fade"
+      id="modalJuegoVersus"
+      tabindex="-1"
+      aria-labelledby="modalJuegoVersusLabel"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="modalJuegoVersusLabel">
+              🤖 Tú vs el Detector
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="Cerrar"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <form id="formVersus" enctype="multipart/form-data">
+              <div class="mb-3">
+                <label for="emlFile" class="form-label"
+                  >📎 Sube un archivo .eml</label
+                >
+                <input
+                  type="file"
+                  class="form-control"
+                  id="emlFile"
+                  name="emlFile"
+                  accept=".eml"
+                  required
+                />
+              </div>
+              <div class="mb-3">
+                <label class="form-label">¿Qué crees que es?</label>
+                <select class="form-select" name="usuarioDecision" required>
+                  <option value="">Selecciona tu predicción</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="text-center">
+                <button type="submit" class="btn btn-primary">
+                  ✅ Enviar y Comparar
+                </button>
+              </div>
+            </form>
+            <div
+              id="resultadoVersus"
+              class="alert alert-info text-center fw-bold mt-4"
+              style="display: none"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Modal: Acierta la Marca -->
+    <div
+      class="modal fade"
+      id="modalJuegoDominios"
+      tabindex="-1"
+      aria-labelledby="modalJuegoDominiosLabel"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="modalJuegoDominiosLabel">
+              🌐 Acierta la Marca
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="Cerrar"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <form id="formDominios">
+              <div class="mb-3">
+                <label>1. <code>paypal-verification.com</code></label>
+                <select name="d1" class="form-select" required>
+                  <option value="">Selecciona</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label>2. <code>apple.com</code></label>
+                <select name="d2" class="form-select" required>
+                  <option value="">Selecciona</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label>3. <code>micr0soft-support.net</code></label>
+                <select name="d3" class="form-select" required>
+                  <option value="">Selecciona</option>
+                  <option value="phishing">🚨 Phishing</option>
+                  <option value="seguro">✅ Seguro</option>
+                </select>
+              </div>
+              <div class="text-center">
+                <button type="submit" class="btn btn-primary">
+                  ✅ Evaluar
+                </button>
+              </div>
+            </form>
+            <div
+              id="resultadoDominios"
+              class="alert alert-info text-center fw-bold mt-4"
+              style="display: none"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

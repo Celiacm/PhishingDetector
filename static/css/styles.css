@@ -1,0 +1,185 @@
+/* styles.css profesional */
+body {
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #333;
+  }
+  
+  .navbar {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+  
+  .modal.fade.show {
+    animation: fadeIn 0.4s ease-in-out;
+  }
+  
+  .section {
+    display: none;
+    transition: opacity 0.5s ease;
+
+  }
+  .section:not(.active) {
+    opacity: 0;
+  }
+  .section.active {
+    display: block;
+    animation: fadeIn 0.5s ease-in;
+    opacity: 1;
+
+  }
+  @media (max-width: 768px) {
+    .card canvas {
+      height: 200px !important;
+    }
+  }
+  
+  
+  .card {
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease-in-out;
+  }
+  .card:hover {
+    transform: scale(1.03);
+  }
+  
+  #consejoSeguridad {
+    font-size: 1.1rem;
+    font-weight: 500;
+  }
+
+  
+  .loading-screen {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #fff;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+  
+  .btn-primary {
+    background-color: #2e5eaa;
+    border: none;
+  }
+  .btn-primary:hover {
+    background-color: #244c88;
+  }
+  
+  .alert {
+    font-size: 1.1rem;
+  }
+  
+  canvas {
+    background: #fff;
+    border-radius: 10px;
+    padding: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  
+  .metric-value {
+    font-size: 1.8rem;
+    font-weight: bold;
+    color: #0d6efd;
+    margin-top: 0.3rem;
+  }
+  
+  
+  .cookie-banner {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    right: 20px;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    padding: 15px 20px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    z-index: 9999;
+    display: none;
+    max-width: 500px;
+    margin: auto;
+  }
+  
+  
+  
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .metric-card {
+    background: #f1f4f9;
+    border: none;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    border-radius: 10px;
+    transition: transform 0.2s;
+  }
+  .metric-card:hover {
+    transform: scale(1.03);
+  }
+  .card h6 {
+    color: #444;
+  }
+  
+  
+
+  footer {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.9rem;
+  }
+  
+  .metric-card.bg-light {
+    border-left: 6px solid #0d6efd;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  
+  .metric-card.bg-light.text-warning {
+    border-left: 6px solid #ffc107;
+  }
+  
+  .toast-feedback {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #0d6efd;
+    color: white;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-weight: bold;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    z-index: 9999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s ease, transform 0.3s ease;
+  }
+  
+  .toast-feedback.show {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  
+
+  .metric-value.text-success {
+    color: #198754;
+  }
+  
+  .metric-value.text-danger {
+    color: #dc3545;
+  }
+
+
+  .hover-card {
+    cursor: pointer;
+    transition: transform 0.2s ease-in-out;
+  }
+  .hover-card:hover {
+    transform: scale(1.03);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  }
+  
