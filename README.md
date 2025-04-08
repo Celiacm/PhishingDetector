@@ -106,4 +106,3 @@ Nunca subas tu archivo .env al repositorio público.
 Protege tus claves de OAuth2, Telegram y VirusTotal.
 
 Utiliza un .gitignore adecuado para ocultar archivos sensibles.
-
