@@ -1,63 +1,109 @@
-# PhishingDetector
-PhishingDetector 🛡️
-
-PhishingDetector es un sistema web desarrollado con Flask que permite analizar correos electrónicos en busca de intentos de phishing, utilizando autenticación SPF, DKIM, DMARC, reglas YARA, integración con VirusTotal y alertas por Telegram. Incluye una interfaz web intuitiva que permite ver reportes, métricas y realizar análisis manuales.
+🛡️ PhishingDetector
+PhishingDetector es un sistema web desarrollado con Flask que permite analizar correos electrónicos para detectar posibles intentos de phishing.
+Utiliza autenticación SPF, DKIM, DMARC, reglas YARA, integración con VirusTotal y alertas automáticas por Telegram.
+El sistema incluye una interfaz web intuitiva para visualizar reportes, métricas y realizar análisis manuales o automáticos.
 
 🌐 Objetivo General
+Fortalecer la seguridad digital de personas y organizaciones mediante la identificación clara de correos electrónicos fraudulentos o sospechosos, reduciendo el riesgo de ataques de phishing.
 
-Ayudar a personas y organizaciones a identificar claramente correos electrónicos fraudulentos y sospechosos, reduciendo la probabilidad de caer en fraudes y fortaleciendo la seguridad digital frente a amenazas en constante evolución.
+🎯 Objetivos Específicos (SMART)
+🛡️ Desarrollar un sistema de detección de phishing en tiempo real.
 
-🌟 Objetivos Específicos (SMART)
+🛡️ Implementar análisis de archivos adjuntos mediante reglas YARA y escaneos en VirusTotal.
 
-Desarrollar un sistema de detección de phishing en tiempo real.
+🛡️ Enviar alertas automáticas por Telegram cuando se detecte phishing.
 
-Implementar análisis de archivos adjuntos con reglas YARA y VirusTotal ✔️
+🛡️ Visualizar reportes y métricas de análisis a través de una interfaz web.
 
-Enviar alertas automáticas por Telegram cuando se detecta phishing ✔️
+🛡️ Aumentar la precisión de detección de correos de phishing en un 70% durante un periodo de 3 meses.
 
-Mostrar una interfaz web con reportes, métricas y análisis ✔️
+🛠️ Tecnologías Utilizadas
+Tecnología	Descripción
+Flask	Framework web en Python
+SQLite	Base de datos ligera local
+SPF, DKIM, DMARC	Protocolos de autenticación de correo
+YARA	Análisis de patrones y malware en adjuntos
+VirusTotal API	Escaneo antivirus en enlaces y archivos
+Telegram Bot API	Envío de alertas en tiempo real
+HTML, Bootstrap, Chart.js	Diseño y visualización gráfica
+🔍 Características Principales
+Autenticación OAuth2 mediante Gmail.
 
-Aumentar la precisión de detección en un 70% durante un periodo de 3 meses
+Análisis automático de correos al iniciar sesión.
 
-📖 Tecnologías utilizadas
+Carga manual de correos en formato .eml.
 
-Flask (framework web en Python)
+Verificación de autenticación SPF, DKIM y DMARC.
 
-SQLite (base de datos local)
+Análisis de adjuntos sospechosos usando YARA y VirusTotal.
 
-SPF, DKIM, DMARC (protocolos de autenticación)
+Detección de enlaces sospechosos en el cuerpo del correo.
 
-YARA (análisis de patrones de malware)
+Sistema de puntuación de riesgo y clasificación (Seguro, Sospechoso, Phishing).
 
-VirusTotal API (análisis antivirus)
+Reportes estadísticos interactivos con gráficos.
 
-Telegram Bot API (alertas en tiempo real)
+Exportación de resultados a CSV y PDF.
 
-HTML, Bootstrap y Chart.js (interfaz gráfica)
+Alertas inmediatas en Telegram ante detecciones críticas.
 
+Modo prueba para realizar validaciones manuales.
 
-🔎 Características principales
+Métricas avanzadas: Precisión, Sensibilidad, Especificidad.
 
-Autenticación mediante Gmail (OAuth2)
+📈 Métricas del Sistema
+El sistema mide su efectividad a través de:
 
-Análisis automático y manual de correos
+Precisión (Accuracy)
 
-Verificación SPF / DKIM / DMARC
+Sensibilidad (Recall)
 
-Análisis de adjuntos con YARA y VirusTotal
+Especificidad (Specificity)
 
-Reportes estadísticos con gráficas
+Estas métricas permiten evaluar y mejorar continuamente el rendimiento del motor de detección.
 
-Exportación a CSV y PDF
+🚀 Instalación y Uso Rápido
+Clona el repositorio:
 
-Alerta inmediata en Telegram si hay phishing crítico
+bash
+Copiar
+Editar
+git clone https://github.com/Celiacm/PhishingDetector.git
+cd PhishingDetector
+Instala las dependencias:
 
-Modo prueba para validación controlada
+bash
+Copiar
+Editar
+pip install -r requirements.txt
+Configura el archivo .env con tus claves:
 
-Métricas de precisión, sensibilidad y especificidad
+bash
+Copiar
+Editar
+# Ejemplo de .env
+OAUTH_ACCESS_TOKEN=your_access_token
+OAUTH_EMAIL=your_email@gmail.com
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+VIRUSTOTAL_API_KEY=your_virustotal_key
+SECRET_KEY=your_flask_secret_key
+Ejecuta la aplicación:
 
+bash
+Copiar
+Editar
+python app.py
+Accede al sistema en tu navegador:
 
+cpp
+Copiar
+Editar
+http://127.0.0.1:5000/
+🧹 Consideraciones de Seguridad
+Nunca subas tu archivo .env al repositorio público.
 
+Protege tus claves de OAuth2, Telegram y VirusTotal.
 
-
+Utiliza un .gitignore adecuado para ocultar archivos sensibles.
 
