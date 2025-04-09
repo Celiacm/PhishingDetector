@@ -39,7 +39,7 @@ import modules.utils as utils  # Utilidades generales (Telegram, etc.)
 
 # Inicialización de la app Flask
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY")
+app.secret_key = os.getenv("SECRET_KEY", 'clave_secreta_super_segura')
 
 # Configuración de logging para depuración
 logging.basicConfig(level=logging.INFO)
@@ -388,23 +388,23 @@ def export_csv():
     si = io.StringIO()
     writer = csv.writer(si, delimiter=';', quoting=csv.QUOTE_MINIMAL)
 
-    # Cabecera más descriptiva
+    # 🧠 Cabecera completa
     writer.writerow([
-        "📄 ID", "📌 Asunto", "📨 Remitente", "🛡️ Estado", 
-        "✅ SPF", "✅ DKIM", "✅ DMARC", 
-        "📅 Fecha", "📋 Motivos de detección"
+        "ID", "Asunto", "Remitente", "Estado", 
+        "SPF", "DKIM", "DMARC", 
+        "Fecha", "Motivos de detección"
     ])
 
     for c in correos:
         try:
-            motivos = json.loads(c["reasons"]) if c.get("reasons") else []
-        except (json.JSONDecodeError, TypeError):
-            motivos = []
-
-        if not motivos:
+            # 🔥 Asegurar que 'reasons' esté como lista
+            motivos = json.loads(c["reasons"]) if isinstance(c.get("reasons"), str) else c.get("reasons", [])
+            if not isinstance(motivos, list):
+                motivos = [motivos]
+        except Exception:
             motivos = ["(Motivos no disponibles)"]
 
-        motivos_str = " | ".join(motivos)
+        motivos_str = " | ".join(motivos) if motivos else "(Motivos no disponibles)"
 
         estado = c.get("estado", "").lower()
 
@@ -415,6 +415,9 @@ def export_csv():
         else:
             estado_color = "✅ Seguro"
 
+        # 🔥 Si falta fecha, poner '--'
+        fecha = c.get("fecha", "--")
+
         writer.writerow([
             c.get("id", "--"),
             c.get("subject", "--"),
@@ -423,10 +426,9 @@ def export_csv():
             c.get("spf", "--"),
             c.get("dkim", "--"),
             c.get("dmarc", "--"),
-            c.get("fecha", "--"),
+            fecha,
             motivos_str
         ])
-
 
     mem = io.BytesIO()
     mem.write(si.getvalue().encode("utf-8-sig"))  # BOM para Excel
@@ -562,7 +564,7 @@ def add_page_number(canvas, doc):
     page_num = canvas.getPageNumber()
     text = f"Página {page_num}"
     canvas.setFont('Helvetica', 9)
-    canvas.drawRightString(200*mm, 15*mm, text)
+    canvas.drawRightString(200, 15, text)
 
 
 @app.route("/analyze_email_eml", methods=["POST"])
@@ -978,5 +980,4 @@ def from_json_filter(s):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
-  
+    app.run(host="0.0.0.0", port=5000)
