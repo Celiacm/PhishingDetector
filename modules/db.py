@@ -5,15 +5,19 @@ import os
 from modules.helpers import score_a_estado
 
 
+conn_global = None  #para pruebas de integración
 
 
 DB_NAME = "phishing_detector.db"
 FEEDBACK_CORRECTO = "Correcto"
 FEEDBACK_INCORRECTO = "Incorrecto"
 
+def get_connection():
+    global conn_global
+    return conn_global or sqlite3.connect(DB_NAME)
 
 def init_db():
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS correos (
@@ -50,15 +54,15 @@ def init_db():
         
         
 def guardar_feedback(id_correo, correcto):
-    with sqlite3.connect(DB_NAME) as con:
-        cur = con.cursor()
+    with get_connection() as conn:
+        cur = conn.cursor()
         cur.execute("UPDATE correos SET feedback_usuario = ? WHERE id = ?", 
                     ("Correcto" if correcto else "Incorrecto", id_correo))
-        con.commit()
+        conn.commit()
 
 
 def get_feedback_stats(user_email):
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT 
@@ -85,7 +89,7 @@ def correo_ya_analizado(message_id):
 
 
 def save_email_to_db(data):
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         cursor = conn.cursor()
         try:
             # ✅ Solo calcular estado si no viene en los datos
@@ -128,7 +132,7 @@ def save_email_to_db(data):
 
 
 def get_email_history(user_email=None):
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         cursor = conn.cursor()
         if user_email:
             cursor.execute("""
@@ -174,7 +178,7 @@ def get_email_history(user_email=None):
 
 
 def existe_remitente(sender_email):
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM correos WHERE sender = ?", (sender_email,))
         resultado = cursor.fetchone()
@@ -184,26 +188,26 @@ def existe_remitente(sender_email):
 
 
 def get_email_states(user_email):
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT estado FROM correos WHERE user_email = ?", (user_email,))
         return cursor.fetchall()
 
 def save_test_result(correcto, tipo_real, tipo_detectado, correo_id=None):
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''INSERT INTO resultados_test (correcto, tipo_real, tipo_detectado, correo_id)
                           VALUES (?, ?, ?, ?)''', (correcto, tipo_real, tipo_detectado, correo_id))
         conn.commit()
 
 def get_test_results():
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT fecha, correcto, tipo_real, tipo_detectado, correo_id FROM resultados_test ORDER BY fecha DESC")
         return cursor.fetchall()
 
 def get_email_by_id(correo_id):
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM correos WHERE id = ?", (correo_id,))
@@ -211,7 +215,7 @@ def get_email_by_id(correo_id):
         return email
 
 def get_all_emails(user_email):
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM correos WHERE user_email = ? ORDER BY id DESC", (user_email,))
@@ -231,7 +235,7 @@ def get_all_emails(user_email):
 
 
 def get_email_by_message_id(message_id):
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM correos WHERE message_id = ?", (message_id,))
@@ -241,7 +245,7 @@ def get_email_by_message_id(message_id):
 
 
 def actualizar_estado_por_score():
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         conn.row_factory = sqlite3.Row 
         cursor = conn.cursor()
         cursor.execute("SELECT id, score FROM correos")
@@ -256,7 +260,7 @@ def actualizar_estado_por_score():
 
 # Función para limpiar completamente la tabla de correos
 def limpiar_base_de_datos():
-    with sqlite3.connect(DB_NAME) as conn:
+    with get_connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
