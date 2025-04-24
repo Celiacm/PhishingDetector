@@ -296,10 +296,10 @@
                   >
                   {% endif %}
                 </td>
-                <p><strong>SPF:</strong> {{ "✅ Válido" if correo.spf else "❌ Fallido" }}</p>
-                <p><strong>DKIM:</strong> {{ "✅ Válido" if correo.dkim else "❌ Fallido" }}</p>
-                <p><strong>DMARC:</strong> {{ "✅ Válido" if correo.dmarc else "❌ Fallido" }}</p>
-                
+                <td>{{ "✅ Válido" if correo.spf else "❌ Fallido" }}</td>
+                <td>{{ "✅ Válido" if correo.dkim else "❌ Fallido" }}</td>
+                <td>{{ "✅ Válido" if correo.dmarc else "❌ Fallido" }}</td>
+
                 <td>{{ correo.score }}</td>
                 <td>{{ correo.fecha }}</td>
                 <td>
@@ -365,10 +365,18 @@
                         <h6 class="fw-bold">
                           🔵 Autenticación SPF, DKIM y DMARC
                         </h6>
-                        <p><strong>SPF:</strong> {{ "✅ Válido" if correo.spf else "❌ Fallido" }}</p>
-                        <p><strong>DKIM:</strong> {{ "✅ Válido" if correo.dkim else "❌ Fallido" }}</p>
-                        <p><strong>DMARC:</strong> {{ "✅ Válido" if correo.dmarc else "❌ Fallido" }}</p>
-                        
+                        <p>
+                          <strong>SPF:</strong> {{ "✅ Válido" if correo.spf
+                          else "❌ Fallido" }}
+                        </p>
+                        <p>
+                          <strong>DKIM:</strong> {{ "✅ Válido" if correo.dkim
+                          else "❌ Fallido" }}
+                        </p>
+                        <p>
+                          <strong>DMARC:</strong> {{ "✅ Válido" if correo.dmarc
+                          else "❌ Fallido" }}
+                        </p>
                       </div>
 
                       <div class="card mt-3">
