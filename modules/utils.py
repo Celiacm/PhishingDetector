@@ -88,9 +88,8 @@ def get_emails_without_session(limit=10):
                         print(f"⚠️ Error leyendo cuerpo: {e}")
                         continue
                     
-                    spf_result = email_analysis.check_spf(msg)
-                    dkim_result = email_analysis.check_dkim(msg)
-                    dmarc_result = email_analysis.check_dmarc(msg)
+                    spf_result, dkim_result, dmarc_result = email_analysis.extract_authentication_results(msg_bytes)
+
                     
 
                     resultado = email_analysis.is_phishing({
