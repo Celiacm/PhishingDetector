@@ -17,6 +17,7 @@ from email import policy
 from email.parser import BytesParser
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
+from reportlab.lib.units import mm
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.units import cm
@@ -566,7 +567,7 @@ def add_page_number(canvas, doc):
     page_num = canvas.getPageNumber()
     text = f"Página {page_num}"
     canvas.setFont('Helvetica', 9)
-    canvas.drawRightString(200, 15, text)
+    canvas.drawRightString(566, 15, text)  # 200 mm ≈ 566 pts
 
 
 @app.route("/analyze_email_eml", methods=["POST"])
